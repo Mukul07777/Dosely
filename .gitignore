@@ -1,0 +1,33 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+.next-*/
+__pycache__/
+.venv/
+*.pdf
+data/kincare.db
+data/raw_pdfs/*
+!data/raw_pdfs/index.json
+data/raw/
+api/.env.bat
+data/kincare.db-shm
+data/kincare.db-wal
+data/vapid_private.pem
+
+# Office lock files
+~$*
+
+# Encryption key for data at rest (api/vault.py): never commit it
+data/data.key
+*.key
+
+# Switch agent secrets and state
+switch/.env
+switch/.watcher_state.json
+switch/demo_out/
+
+# API log from start_switch.sh
+api/uvicorn.log
+

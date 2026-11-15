@@ -1,0 +1,17 @@
+**/node_modules
+**/.next
+**/.next-*
+**/.venv
+**/__pycache__
+**/.pytest_cache
+.git
+docs/img
+api/tests
+data/raw
+data/raw_pdfs
+data/kincare.db*
+data/*.key
+data/*.pem
+.env
+.env.*
+switch
