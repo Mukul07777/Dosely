@@ -11,9 +11,9 @@ are kept where we have them.
 Usage: python -m ingest.portal [--refresh] [--since 2019]
 Endpoint discovery credit: github.com/ankithsurapani/medcheck (data CC0).
 """
+
 import argparse
 import json
-import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -32,7 +32,9 @@ CACHE = Path(__file__).resolve().parents[2] / "data" / "raw" / "portal"
 MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 
 session = requests.Session()
-session.headers.update({"User-Agent": "Dosely/0.1 (drug alert lookup; PromptWars 2026)", "X-Requested-With": "XMLHttpRequest"})
+session.headers.update(
+    {"User-Agent": "Dosely/0.1 (drug alert lookup; PromptWars 2026)", "X-Requested-With": "XMLHttpRequest"}
+)
 
 
 def get_json(path: str, **params):
@@ -65,7 +67,13 @@ def fetch(tab: str, month: str, refresh: bool) -> dict:
     if path.exists() and not refresh:
         return json.loads(path.read_text(encoding="utf-8"))
     data, url = get_json(TABLE[tab], month=month, source="All", tab=tab)
-    env = {"url": url, "tab": tab, "month": month, "fetched_at": datetime.now().isoformat(timespec="seconds"), "payload": data}
+    env = {
+        "url": url,
+        "tab": tab,
+        "month": month,
+        "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "payload": data,
+    }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(env, ensure_ascii=False), encoding="utf-8")
     time.sleep(0.4)  # be polite to a government server
@@ -114,13 +122,22 @@ def load(refresh: bool = False, since: int = 2019) -> dict:
                 brand = clean(r.get("str_brand_name")).strip("() ") or brand_of(product)
                 maker_full = clean(r.get("str_manufactured_by"))
                 lab_source = clean(r.get("str_reporting_source")).lower()
-                source = "cdsco_spurious" if tab == "spurious" else ("state_nsq" if "state" in lab_source else "cdsco_nsq")
+                source = (
+                    "cdsco_spurious" if tab == "spurious" else ("state_nsq" if "state" in lab_source else "cdsco_nsq")
+                )
 
                 # Same batch, close month AND same medicine: different products can share a batch code.
                 dup = next(
-                    (d for d in conn.execute("SELECT id, alert_month, brand, product_name, document_id FROM alerts WHERE batch_norm = ?", (bn,)).fetchall()
-                     if d["document_id"] != doc_id and month_gap(d["alert_month"], alert_month) <= 2
-                     and fuzz.token_set_ratio(d["product_name"].lower(), product.lower()) >= 60),
+                    (
+                        d
+                        for d in conn.execute(
+                            "SELECT id, alert_month, brand, product_name, document_id FROM alerts WHERE batch_norm = ?",
+                            (bn,),
+                        ).fetchall()
+                        if d["document_id"] != doc_id
+                        and month_gap(d["alert_month"], alert_month) <= 2
+                        and fuzz.token_set_ratio(d["product_name"].lower(), product.lower()) >= 60
+                    ),
                     None,
                 )
                 if dup:
@@ -130,13 +147,29 @@ def load(refresh: bool = False, since: int = 2019) -> dict:
 
                 remarks = " ".join(filter(None, [clean(r.get("str_nsq_remarks")), clean(r.get("str_firm_reply"))]))
                 conn.execute(
-                    """INSERT OR IGNORE INTO alerts (document_id, source, category, product_name, brand, batch_no, batch_norm,
-                       mfg_date, expiry, manufacturer, manufacturer_full, reason, reported_by, remarks, alert_month, alert_url, pdf_page)
+                    """INSERT OR IGNORE INTO alerts (document_id, source, category, product_name, brand, batch_no,
+                        batch_norm,
+                       mfg_date, expiry, manufacturer, manufacturer_full, reason, reported_by, remarks, alert_month,
+                       alert_url, pdf_page)
                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)""",
-                    (doc_id, source, "spurious" if tab == "spurious" else "nsq", product, brand, batch, bn,
-                     clean(r.get("dt_manufacturing_date")), clean(r.get("dt_expiry_date")),
-                     maker_name(maker_full) if maker_full else "", maker_full, clean(r.get("str_nsq_result")),
-                     clean(r.get("str_reported_by_lab_or_state")), remarks, alert_month, PORTAL_PAGE[tab]),
+                    (
+                        doc_id,
+                        source,
+                        "spurious" if tab == "spurious" else "nsq",
+                        product,
+                        brand,
+                        batch,
+                        bn,
+                        clean(r.get("dt_manufacturing_date")),
+                        clean(r.get("dt_expiry_date")),
+                        maker_name(maker_full) if maker_full else "",
+                        maker_full,
+                        clean(r.get("str_nsq_result")),
+                        clean(r.get("str_reported_by_lab_or_state")),
+                        remarks,
+                        alert_month,
+                        PORTAL_PAGE[tab],
+                    ),
                 )
                 added += 1
             conn.commit()

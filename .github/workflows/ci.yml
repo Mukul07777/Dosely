@@ -7,7 +7,7 @@ on:
 
 jobs:
   api:
-    name: API tests (pytest)
+    name: API (lint, format, pytest)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -23,7 +23,8 @@ jobs:
           cache: pip
           cache-dependency-path: api/requirements.txt
       - run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0   # OpenCV runtime for OCR
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt ruff
+      - run: ruff check . && ruff format --check .
       - run: python -m pytest -q
 
   web:

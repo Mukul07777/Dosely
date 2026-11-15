@@ -5,6 +5,7 @@ taps; red-flag answers are triaged "urgent" so the pharmacist calls first.
 Triage rules are deliberately simple and conservative; they decide who gets
 a call back first, never what treatment to give.
 """
+
 import os
 import secrets
 

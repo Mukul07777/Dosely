@@ -5,6 +5,7 @@ else Twilio when TWILIO_* is set (voice calls always use Twilio). Otherwise each
 is recorded with status "outbox" so the UI can show exactly what would be sent
 (and speak the voice script in the browser).
 """
+
 import os
 from xml.sax.saxutils import escape
 
@@ -22,7 +23,20 @@ CATEGORY = {
 
 def _month(ym: str, lang: str) -> str:
     y, m = ym.split("-")
-    en = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    en = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ]
     hi = ["जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर"]
     return f"{(hi if lang == 'hi' else en)[int(m) - 1]} {y}"
 
@@ -61,7 +75,8 @@ def voice_script(alert: dict, batch: str, name: str | None, lang: str) -> str:
         )
     return (
         f"Hello{(' ' + name) if name else ''}. This is an important call from Dosely. "
-        f"Your medicine {med}, batch number {spoken_batch}, is listed as {CATEGORY['en'][alert['category']]} in a government alert. "
+        f"Your medicine {med}, batch number {spoken_batch}, is listed "
+        f"as {CATEGORY['en'][alert['category']]} in a government alert. "
         f"Please do not stop the medicine on your own. Speak to your pharmacist or doctor today. "
         f"The details have been sent to your WhatsApp. Thank you."
     )
@@ -73,7 +88,9 @@ def twilio_ready() -> bool:
 
 def _twilio(path: str, data: dict) -> str:
     sid, token = os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"]
-    r = requests.post(f"https://api.twilio.com/2010-04-01/Accounts/{sid}/{path}", data=data, auth=(sid, token), timeout=30)
+    r = requests.post(
+        f"https://api.twilio.com/2010-04-01/Accounts/{sid}/{path}", data=data, auth=(sid, token), timeout=30
+    )
     r.raise_for_status()
     return r.json()["sid"]
 
@@ -97,7 +114,10 @@ def place_call(phone: str, script: str, lang: str) -> tuple[str, str | None]:
     if not (twilio_ready() and sender):
         return "outbox", None
     voice = 'language="hi-IN" voice="Polly.Aditi"' if lang == "hi" else 'language="en-IN" voice="Polly.Raveena"'
-    twiml = f"<Response><Say {voice}>{escape(script)}</Say><Pause length=\"1\"/><Say {voice}>{escape(script)}</Say></Response>"
+    twiml = (
+        f"<Response><Say {voice}>{escape(script)}</Say><Pause "
+        f'length="1"/><Say {voice}>{escape(script)}</Say></Response>'
+    )
     return "sent", _twilio("Calls.json", {"From": sender, "To": phone, "Twiml": twiml})
 
 
@@ -106,11 +126,22 @@ def purchase_text(med: dict, member: str, due_now: bool, next_time: str | None, 
     name = f"{med['name']} {med.get('strength') or ''}".strip()
     food = f" ({med['food']})" if med.get("food") else ""
     if lang == "hi":
-        head = f"Dosely: {member} ke liye {name} kharid li gayi (batch {med['batch']}). Is batch par koi regulator alert nahi mila."
-        when = f"Abhi dawa lene ka samay hai{food}." if due_now else (f"Agli khuraak {next_time} baje{food}." if next_time else "Aaj aur koi khuraak baaki nahi.")
+        head = (
+            f"Dosely: {member} ke liye {name} kharid li gayi (batch "
+            f"{med['batch']}). Is batch par koi regulator alert nahi mila."
+        )
+        when = (
+            f"Abhi dawa lene ka samay hai{food}."
+            if due_now
+            else (f"Agli khuraak {next_time} baje{food}." if next_time else "Aaj aur koi khuraak baaki nahi.")
+        )
         return f"{head}\n{when}\nHar khuraak par hum yaad dilayenge. Dawa lene ke baad *1* bhejein."
     head = f"Dosely: {name} bought for {member} (batch {med['batch']}). No regulator alert found for this batch."
-    when = f"Please take your dose now{food}." if due_now else (f"Next dose at {next_time}{food}." if next_time else "No more doses due today.")
+    when = (
+        f"Please take your dose now{food}."
+        if due_now
+        else (f"Next dose at {next_time}{food}." if next_time else "No more doses due today.")
+    )
     return f"{head}\n{when}\nWe will remind you at every dose. Reply *1* once taken."
 
 
@@ -118,7 +149,10 @@ def dose_text(med: dict, member: str, time: str, lang: str) -> str:
     name = f"{med['name']} {med.get('strength') or ''}".strip()
     food = f" ({med['food']})" if med.get("food") else ""
     if lang == "hi":
-        return f"Dosely: {member}, {time} baj gaye. {name} lene ka samay hai{food}.\nDawa lene ke baad *1* likh kar bhejein."
+        return (
+            f"Dosely: {member}, {time} baj gaye. {name} lene ka "
+            f"samay hai{food}.\nDawa lene ke baad *1* likh kar bhejein."
+        )
     return f"Dosely: {member}, it's {time}. Time to take {name}{food}.\nReply *1* once taken."
 
 
@@ -127,11 +161,17 @@ def refill_text(med: dict, member: str, left: int, days_left: float, cheaper: st
     name = f"{med['name']} {med.get('strength') or ''}".strip()
     days = max(int(days_left), 0)
     if lang == "hi":
-        msg = f"Dosely: {member} ki {name} ki sirf {left} goli bachi hai (lagbhag {days} din). Khatam hone se pehle dobara le lein."
+        msg = (
+            f"Dosely: {member} ki {name} ki sirf {left} goli bachi hai "
+            f"(lagbhag {days} din). Khatam hone se pehle dobara le lein."
+        )
         if cheaper:
             msg += f"\nWahi salt sasta: {cheaper}. Badalne se pehle doctor/pharmacist se poochhein."
         return msg + "\nKharidne ke baad app mein naya batch darj karein."
-    msg = f"Dosely: only {left} tablets of {name} left for {member} (about {days} days). Please refill before it runs out."
+    msg = (
+        f"Dosely: only {left} tablets of {name} left for {member} "
+        f"(about {days} days). Please refill before it runs out."
+    )
     if cheaper:
         msg += f"\nSame salt for less: {cheaper}. Ask your doctor or pharmacist before switching."
     return msg + "\nEnter the new batch in the app after you buy it."

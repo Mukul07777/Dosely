@@ -4,22 +4,47 @@ from pathlib import Path
 
 os.environ["KINCARE_DB"] = str(Path(tempfile.mkdtemp()) / "test.db")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-import main  # noqa: E402
-from conftest import ADMIN  # noqa: E402
-from testutil import auth_as  # noqa: E402
-from matcher import match, normalise_batch, normalise_maker  # noqa: E402
+import main
+from conftest import ADMIN
+from matcher import match, normalise_batch, normalise_maker
+from testutil import auth_as
 
 # Rows copied from real CDSCO alerts (Feb 2025 spurious list, Jun 2025 NSQ list).
 FIXTURES = [
-    ("cdsco_spurious", "spurious", "Telma H (Telmisartan 40mg & Hydrochlorothiazide 12.5mg)", "Telma H", "05240198", "Under Investigation", "2025-02"),
-    ("cdsco_nsq", "nsq", "Dexamethasone Sodium Phosphate Injection I.P. (Dexacos)", "Dexacos", "P24L220", "Paksons pharmaceuticals Private Limited", "2025-06"),
-    ("state_nsq", "nsq", "Paracetamol Tablets IP", "Paracetamol", "KN-101", "Konis Pharmaceuticals Pvt. Ltd.", "2025-05"),
+    (
+        "cdsco_spurious",
+        "spurious",
+        "Telma H (Telmisartan 40mg & Hydrochlorothiazide 12.5mg)",
+        "Telma H",
+        "05240198",
+        "Under Investigation",
+        "2025-02",
+    ),
+    (
+        "cdsco_nsq",
+        "nsq",
+        "Dexamethasone Sodium Phosphate Injection I.P. (Dexacos)",
+        "Dexacos",
+        "P24L220",
+        "Paksons pharmaceuticals Private Limited",
+        "2025-06",
+    ),
+    (
+        "state_nsq",
+        "nsq",
+        "Paracetamol Tablets IP",
+        "Paracetamol",
+        "KN-101",
+        "Konis Pharmaceuticals Pvt. Ltd.",
+        "2025-05",
+    ),
 ]
 for src, cat, prod, brand, batch, maker, month in FIXTURES:
     main.conn.execute(
-        """INSERT INTO alerts (source, category, product_name, brand, batch_no, batch_norm, manufacturer, reason, alert_month, alert_url)
+        """INSERT INTO alerts (source, category, product_name, brand, batch_no, batch_norm, manufacturer, reason,
+            alert_month, alert_url)
            VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (src, cat, prod, brand, batch, normalise_batch(batch), maker, "test", month, "https://cdsco.gov.in/x.pdf"),
     )
@@ -72,10 +97,13 @@ def test_check_endpoint():
 
 
 def test_inventory_check():
-    r = client.post("/api/inventory/check", json=[
-        {"product": "Telma H", "batch": "0524 0198", "qty": 40},
-        {"product": "Amlodac 5", "batch": "AMD-7781", "qty": 12},
-    ]).json()
+    r = client.post(
+        "/api/inventory/check",
+        json=[
+            {"product": "Telma H", "batch": "0524 0198", "qty": 40},
+            {"product": "Amlodac 5", "batch": "AMD-7781", "qty": 12},
+        ],
+    ).json()
     assert r["total"] == 2 and r["flagged"] == 1
 
 
@@ -85,7 +113,10 @@ def test_alerts_search_and_stats():
 
 
 def test_watchlist_roundtrip():
-    assert client.post("/api/watchlist", json={"batch": "05240198", "brand": "Telma H"}, headers=HDR).json()["verdict"] == "alert_found"
+    assert (
+        client.post("/api/watchlist", json={"batch": "05240198", "brand": "Telma H"}, headers=HDR).json()["verdict"]
+        == "alert_found"
+    )
     assert len(client.get("/api/watchlist", headers=HDR).json()) == 1
     assert client.post("/api/watchlist/recheck", headers=HDR).json()["changed"] == []
     client.delete("/api/watchlist/05240198", headers=HDR)
@@ -112,7 +143,13 @@ def test_ask_regulator():
 def test_hindi_messages_never_say_safe():
     import notify
 
-    a = {"category": "spurious", "brand": "Telma H", "product_name": "Telma H", "alert_month": "2025-02", "alert_url": "https://cdsco.gov.in/x.pdf"}
+    a = {
+        "category": "spurious",
+        "brand": "Telma H",
+        "product_name": "Telma H",
+        "alert_month": "2025-02",
+        "alert_url": "https://cdsco.gov.in/x.pdf",
+    }
     for lang in ("hi", "en"):
         text = notify.whatsapp_text(a, "05240198", "Ravi", lang) + notify.voice_script(a, "05240198", "Ravi", lang)
         assert "05240198" in text.replace(" ", "") and "safe" not in text.lower()
@@ -120,10 +157,20 @@ def test_hindi_messages_never_say_safe():
 
 
 def test_pharmacy_sales_notify():
-    client.put("/api/sales", headers=HDR, json=[
-        {"pharmacy": "Shree Medicos", "customer": "Ravi", "phone": "9876543210", "batch": "P24L220", "product": "Dexacos"},
-        {"customer": "Asha", "phone": "9876500000", "batch": "CLEAN1"},
-    ])
+    client.put(
+        "/api/sales",
+        headers=HDR,
+        json=[
+            {
+                "pharmacy": "Shree Medicos",
+                "customer": "Ravi",
+                "phone": "9876543210",
+                "batch": "P24L220",
+                "product": "Dexacos",
+            },
+            {"customer": "Asha", "phone": "9876500000", "batch": "CLEAN1"},
+        ],
+    )
     r = client.post("/api/pharmacy/notify", params={"batch": "P24L220"}, headers=HDR).json()
     assert r["buyers"] == 1 and {n["channel"] for n in r["notifications"]} == {"whatsapp", "voice"}
     assert all(n["status"] == "outbox" for n in r["notifications"])  # no Twilio keys in tests
@@ -133,12 +180,13 @@ def test_recall_engine_end_to_end(monkeypatch):
     import time as _t
 
     import agents
-    import recall
     from ingest import portal
 
     monkeypatch.setattr(agents, "run_source", lambda src, emit: [])
     monkeypatch.setattr(portal, "load", lambda **kw: None)
-    rid = client.post("/api/recall/run", headers=HDR, json={"scope": "latest", "demo_phone": "9811122233", "demo_name": "Judge"}).json()["run_id"]
+    rid = client.post(
+        "/api/recall/run", headers=HDR, json={"scope": "latest", "demo_phone": "9811122233", "demo_name": "Judge"}
+    ).json()["run_id"]
     for _ in range(50):
         types = [r[0] for r in main.conn.execute("SELECT type FROM events WHERE run_id = ?", (rid,))]
         if "run_complete" in types:
@@ -158,7 +206,10 @@ def test_failure_explainer_and_insights():
     assert [x["key"] for x in f] == ["assay", "dissolution"] and f[0]["hi"]
     assert insights.failures_of("Diethylene glycol detected")[0]["severity"] == "critical"
     assert insights.failures_of("Does not conform", "spurious")[0]["key"] == "spurious"
-    assert insights.state_of("RDTL, Guwahati") == "Assam" and insights.group_of("Telma H (Telmisartan 40mg)") == "Heart & BP"
+    assert (
+        insights.state_of("RDTL, Guwahati") == "Assam"
+        and insights.group_of("Telma H (Telmisartan 40mg)") == "Heart & BP"
+    )
     r = client.get("/api/check", params={"batch": "05240198", "brand": "Telma H"}).json()
     assert r["matches"][0]["explain"][0]["key"] == "spurious"
     assert client.get("/api/insights").json()["total"] == 3
@@ -169,7 +220,9 @@ def test_bill_scan_checks_every_batch():
     r = client.post("/api/scan/bill", files={"image": ("b.png", img.read_bytes(), "image/png")}).json()
     batches = [i["batch"] for i in r["items"]]
     assert {"BDS25003", "05240198", "AML24017", "MHPL-733"} <= set(batches)
-    assert r["flagged"] == 1 and next(i for i in r["items"] if i["batch"] == "05240198")["match"]  # only Telma H is in the test DB
+    assert (
+        r["flagged"] == 1 and next(i for i in r["items"] if i["batch"] == "05240198")["match"]
+    )  # only Telma H is in the test DB
 
 
 def test_checkin_flow_and_triage():
@@ -186,7 +239,13 @@ def test_checkin_flow_and_triage():
     token = wa.split("checkin?t=")[1].split()[0]
     info = client.get(f"/api/checkin/{token}").json()
     assert info["batch"] == "P24L220" and not info["responded"] and len(info["symptoms"]) >= 8
-    assert client.post(f"/api/checkin/{token}", json={"feeling": "unwell", "symptoms": ["dizziness", "chest_pain"], "bp_sys": 170, "bp_dia": 100}).json()["triage"] == "urgent"
+    assert (
+        client.post(
+            f"/api/checkin/{token}",
+            json={"feeling": "unwell", "symptoms": ["dizziness", "chest_pain"], "bp_sys": 170, "bp_dia": 100},
+        ).json()["triage"]
+        == "urgent"
+    )
     assert client.post(f"/api/checkin/{token}", json={"feeling": "ok", "bp_sys": 400}).status_code == 400
     q = client.get("/api/checkins").json()
     assert q["urgent"] >= 1 and q["items"][0]["triage"] == "urgent"
@@ -196,7 +255,11 @@ def test_checkin_flow_and_triage():
 
 
 def test_watchlist_member_and_expiry():
-    client.post("/api/watchlist", headers=HDR, json={"batch": "AML24017", "brand": "Amlodipine", "member": "Maa", "expiry": "08/2027"})
+    client.post(
+        "/api/watchlist",
+        headers=HDR,
+        json={"batch": "AML24017", "brand": "Amlodipine", "member": "Maa", "expiry": "08/2027"},
+    )
     w = next(i for i in client.get("/api/watchlist", headers=HDR).json() if i["batch"] == "AML24017")
     assert w["member"] == "Maa" and w["expiry"] == "08/2027"
 
@@ -217,8 +280,16 @@ def test_prescription_to_reminders_and_report():
     rx = client.post("/api/care/prescription/scan", files={"image": ("rx.png", img.read_bytes(), "image/png")}).json()
     names = [m["name"] for m in rx["medicines"]]
     assert names == ["Dolo", "Pantocid", "Ascoril", "Cetzine"] and "Rest" in [a["en"] for a in rx["advice"]]
-    plan = client.post("/api/care/plans", headers=HDR, json={"member": "Maa", "doctor": "Dr. A. Sharma",
-        "advice": [a["en"] for a in rx["advice"]], "medicines": rx["medicines"]}).json()
+    plan = client.post(
+        "/api/care/plans",
+        headers=HDR,
+        json={
+            "member": "Maa",
+            "doctor": "Dr. A. Sharma",
+            "advice": [a["en"] for a in rx["advice"]],
+            "medicines": rx["medicines"],
+        },
+    ).json()
     today = client.get("/api/care/today", headers=HDR).json()
     assert len(today["doses"]) == 7  # Dolo x2, Pantocid x1, Ascoril x3, Cetzine x1
     d = today["doses"][0]
@@ -230,7 +301,9 @@ def test_prescription_to_reminders_and_report():
 
 # ---- Early Signal ----
 def _report(device, batch, symptoms, city="Delhi"):
-    return client.post("/api/reports", json={"batch": batch, "symptoms": symptoms, "city": city}, headers=auth_as(device))
+    return client.post(
+        "/api/reports", json={"batch": batch, "symptoms": symptoms, "city": city}, headers=auth_as(device)
+    )
 
 
 def test_signal_needs_disproportion_not_just_volume():
@@ -291,7 +364,10 @@ def test_checkout_without_stripe_key_is_clear_503(monkeypatch):
 
 
 def test_confirm_rejects_other_devices_session():
-    main.conn.execute("INSERT INTO payments (device, plan, session_id, amount, currency) VALUES ('owner', 'family', 'cs_x', 4900, 'inr')")
+    main.conn.execute(
+        "INSERT INTO payments (device, plan, session_id, amount, "
+        "currency) VALUES ('owner', 'family', 'cs_x', 4900, 'inr')"
+    )
     assert client.get("/api/billing/confirm?session_id=cs_x", headers=H).status_code == 404
 
 
@@ -305,13 +381,21 @@ def test_admin_overview_and_token(monkeypatch):
 
 def _plan(dev: str, name: str) -> int:
     h = auth_as(dev)
-    client.post("/api/care/plans", headers=h, json={"member": "Dadi", "medicines": [{"name": name, "morning": 1, "noon": 1, "night": 1}]})
+    client.post(
+        "/api/care/plans",
+        headers=h,
+        json={"member": "Dadi", "medicines": [{"name": name, "morning": 1, "noon": 1, "night": 1}]},
+    )
     return client.get("/api/care/plans", headers=h).json()[0]["medicines"][0]["id"]
 
 
 def test_purchase_clean_batch_sets_reminders_once():
     mid = _plan("buyclean0001", "Crocin 500")
-    r = client.post("/api/care/purchase", headers=auth_as("buyclean0001"), json={"med_id": mid, "batch": "ZZ999", "phone": "9876543210"}).json()
+    r = client.post(
+        "/api/care/purchase",
+        headers=auth_as("buyclean0001"),
+        json={"med_id": mid, "batch": "ZZ999", "phone": "9876543210"},
+    ).json()
     assert r["verdict"] == "no_alert_found"
     main.send_due_reminders()
     assert main.send_due_reminders() == 0  # never the same reminder twice
@@ -319,13 +403,20 @@ def test_purchase_clean_batch_sets_reminders_once():
 
 def test_purchase_flagged_batch_sends_alert_not_reminder():
     mid = _plan("buyflag00001", "Telma H")
-    r = client.post("/api/care/purchase", headers=auth_as("buyflag00001"), json={"med_id": mid, "batch": "05240198"}).json()
+    r = client.post(
+        "/api/care/purchase", headers=auth_as("buyflag00001"), json={"med_id": mid, "batch": "05240198"}
+    ).json()
     assert r["verdict"] == "alert_found"
 
 
 def test_purchase_other_device_forbidden():
     mid = _plan("owner0000001", "Crocin 500")
-    assert client.post("/api/care/purchase", headers=auth_as("intruder0001"), json={"med_id": mid, "batch": "X1"}).status_code == 404
+    assert (
+        client.post(
+            "/api/care/purchase", headers=auth_as("intruder0001"), json={"med_id": mid, "batch": "X1"}
+        ).status_code
+        == 404
+    )
 
 
 def test_interactions_from_cached_label():
@@ -334,7 +425,10 @@ def test_interactions_from_cached_label():
     import interactions
 
     main.conn.execute("CREATE TABLE IF NOT EXISTS fda_labels (generic TEXT PRIMARY KEY, body TEXT)")
-    main.conn.execute("INSERT OR REPLACE INTO fda_labels VALUES ('warfarin', ?)", (json.dumps({"drug_interactions": "Aspirin increases the risk of bleeding."}),))
+    main.conn.execute(
+        "INSERT OR REPLACE INTO fda_labels VALUES ('warfarin', ?)",
+        (json.dumps({"drug_interactions": "Aspirin increases the risk of bleeding."}),),
+    )
     main.conn.execute("INSERT OR REPLACE INTO fda_labels VALUES ('aspirin', ?)", (json.dumps({}),))
     r = interactions.check(main.conn, ["Warf 5mg", "Ecosprin 75"])
     assert [(i["a"], i["b"]) for i in r["interactions"]] == [("Warf 5mg", "Ecosprin 75")]
@@ -342,18 +436,35 @@ def test_interactions_from_cached_label():
 
 def test_ocr_lookalike_batch_is_only_ever_a_possible_match():
     from matcher.core import lookalike
-    alert = {"batch_no": "DOB57480", "manufacturer": "Micro Labs Ltd", "brand": "Dolo-650", "product_name": "Paracetamol Tablets IP"}
+
+    alert = {
+        "batch_no": "DOB57480",
+        "manufacturer": "Micro Labs Ltd",
+        "brand": "Dolo-650",
+        "product_name": "Paracetamol Tablets IP",
+    }
     assert match([alert], "DOB57480", "Micro Labs")[0]["score"]["level"] == "strong"
     s = match([alert], "D0B57480", "Micro Labs")[0]["score"]  # OCR read the letter O as a zero
     assert s["level"] == "possible" and s["lookalike"] and s["batch"] == 90
-    assert match([alert], "D0B57481") == []                   # a really different batch never matches
+    assert match([alert], "D0B57481") == []  # a really different batch never matches
     assert lookalike("ds-0B5") == lookalike("DS0B5") == "D5085"
 
 
 def test_strip_read_with_cut_edges_and_a_repeated_brand():
     import ocr
-    L = lambda t, h=10: {"text": t, "conf": 0.9, "height": h, "top": h, "left": 0}
-    f = ocr.extract_fields([L("Dolo-650 Dolo-650 Paracetamol TabtetsIP", 40), L("Dolo-650"), L("Dolo-650 FOR 15 TABS"),
-                            L("Mfg.Lic.No.:M/600/2012"), L("NO.DOB57480 MAY.2026"), L("XP.APR.2030 M.R.P")])["fields"]
+
+    def L(t, h=10):
+        return {"text": t, "conf": 0.9, "height": h, "top": h, "left": 0}
+
+    f = ocr.extract_fields(
+        [
+            L("Dolo-650 Dolo-650 Paracetamol TabtetsIP", 40),
+            L("Dolo-650"),
+            L("Dolo-650 FOR 15 TABS"),
+            L("Mfg.Lic.No.:M/600/2012"),
+            L("NO.DOB57480 MAY.2026"),
+            L("XP.APR.2030 M.R.P"),
+        ]
+    )["fields"]
     assert f["batch"] == "DOB57480" and f["expiry"] == "APR.2030" and f["brand"] == "Dolo-650"
     assert ocr.extract_fields([L("Mfg.Lic.No.:M/600/2012"), L("Regd. No. 12345")])["fields"]["batch"] is None

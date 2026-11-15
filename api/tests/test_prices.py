@@ -4,12 +4,12 @@ from pathlib import Path
 
 os.environ.setdefault("KINCARE_DB", str(Path(tempfile.mkdtemp()) / "test.db"))
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-import main  # noqa: E402
-from testutil import auth_as  # noqa: E402
-import prices  # noqa: E402
-from ingest.medicines import maker_key, parse_pack, salt_part  # noqa: E402
+import main
+import prices
+from ingest.medicines import maker_key, parse_pack, salt_part
+from testutil import auth_as
 
 client = TestClient(main.app)
 H = auth_as("prices-test-device")
@@ -27,10 +27,28 @@ def setup_module():
     main.conn.execute("DELETE FROM medicines")
     for mid, name, price, maker, pack, comp in ROWS:
         form, qty, unit = parse_pack(pack)
-        main.conn.execute("INSERT INTO medicines VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                          (mid, name, name.lower(), price, maker, maker_key(maker), pack, salt_part(comp), salt_part(comp), form, qty, unit, price / qty))
-    main.conn.execute("""INSERT INTO alerts (source, category, product_name, batch_no, batch_norm, manufacturer, reason, alert_month, alert_url)
-                         VALUES ('cdsco_nsq', 'nsq', 'Telmisartan Tablets', 'RX1', 'RX1', 'M/s. Riskycorp Pharma Pvt. Ltd.', 'Dissolution', '2026-01', 'https://x')""")
+        main.conn.execute(
+            "INSERT INTO medicines VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                mid,
+                name,
+                name.lower(),
+                price,
+                maker,
+                maker_key(maker),
+                pack,
+                salt_part(comp),
+                salt_part(comp),
+                form,
+                qty,
+                unit,
+                price / qty,
+            ),
+        )
+    main.conn.execute("""INSERT INTO alerts (source, category, product_name, batch_no, batch_norm, manufacturer,
+        reason, alert_month, alert_url)
+                         VALUES ('cdsco_nsq', 'nsq', 'Telmisartan Tablets', 'RX1', 'RX1',
+                         'M/s. Riskycorp Pharma Pvt. Ltd.', 'Dissolution', '2026-01', 'https://x')""")
     main.conn.commit()
     prices._maker_alerts = None
 
@@ -54,8 +72,26 @@ def test_alternatives_same_salt_same_form_only_and_maker_record():
 
 def test_search_and_plan_savings():
     assert client.get("/api/medicines/search", params={"q": "telmik"}).json()[0]["name"].startswith("Telmikind")
-    client.post("/api/care/plans", headers=H, json={"member": "Papa", "advice": [], "medicines": [
-        {"name": "Telmikind 40", "strength": "40 mg", "food": "after", "morning": 1, "noon": 0, "night": 0, "days": 30, "as_needed": False}]})
+    client.post(
+        "/api/care/plans",
+        headers=H,
+        json={
+            "member": "Papa",
+            "advice": [],
+            "medicines": [
+                {
+                    "name": "Telmikind 40",
+                    "strength": "40 mg",
+                    "food": "after",
+                    "morning": 1,
+                    "noon": 0,
+                    "night": 0,
+                    "days": 30,
+                    "as_needed": False,
+                }
+            ],
+        },
+    )
     s = client.get("/api/care/savings", headers=H, params={"member": "Papa"}).json()
     # 9.80 vs 0.65 a tablet, 30 a month: the cheaper Riskycorp brand is skipped, its maker has an alert on record.
     assert s["monthly_now"] == 294 and s["monthly_cheapest"] == 20

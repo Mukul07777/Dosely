@@ -1,13 +1,29 @@
 """Batch checks and the alert store: check, scan, bill, inventory, alerts, stats, manufacturers, insights, ingest."""
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from rapidfuzz import fuzz
 
+from core import (
+    SOURCES,
+    _core,
+    _fill,
+    _insights_cache,
+    _next_nightly,
+    _refresh,
+    _stats_cache,
+    _stats_now,
+    candidates,
+    conn,
+    now,
+    on_startup,
+    require,
+    rows,
+    run_check,
+)
 from matcher import match, normalise_batch, normalise_maker
-
-from core import SOURCES, _core, _fill, _insights_cache, _next_nightly, _refresh, _stats_cache, _stats_now, candidates, conn, now, on_startup, require, rows, run_check
 
 router = APIRouter()
 
@@ -33,7 +49,7 @@ async def scan(image: UploadFile = File(...)):
     try:
         result = ocr.scan(data)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return result
 
 
@@ -49,12 +65,22 @@ async def scan_bill(image: UploadFile = File(...)):
     try:
         r = ocr.scan_bill(data)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     items = []
     for c in r["candidates"]:
         hits = match(candidates(c["batch"]), c["batch"], None, c["line"])
-        items.append({**c, "verdict": "alert_found" if hits else "no_alert_found",
-                      "match": {**hits[0], "explain": insights.failures_of(hits[0]["alert"]["reason"], hits[0]["alert"]["category"])} if hits else None})
+        items.append(
+            {
+                **c,
+                "verdict": "alert_found" if hits else "no_alert_found",
+                "match": {
+                    **hits[0],
+                    "explain": insights.failures_of(hits[0]["alert"]["reason"], hits[0]["alert"]["category"]),
+                }
+                if hits
+                else None,
+            }
+        )
     return {"checked_at": now(), "items": items, "flagged": sum(1 for i in items if i["match"]), "lines": r["lines"]}
 
 
@@ -96,15 +122,24 @@ def alerts(
         args.append(source)
     clause = f"WHERE {' AND '.join(where)}" if where else ""
     total = conn.execute(f"SELECT COUNT(*) FROM alerts {clause}", args).fetchone()[0]
-    items = rows(f"SELECT * FROM alerts {clause} ORDER BY alert_month DESC, id LIMIT ? OFFSET ?", [*args, limit, offset])
+    items = rows(
+        f"SELECT * FROM alerts {clause} ORDER BY alert_month DESC, id LIMIT ? OFFSET ?", [*args, limit, offset]
+    )
     return {"total": total, "items": items}
 
 
 @router.get("/api/stats")
 def stats():
     """Alert-table summary for the home page; recomputed only after an ingest changes the table."""
-    one = lambda sql: conn.execute(sql).fetchone()[0]
-    key = tuple(conn.execute("SELECT (SELECT COUNT(*) FROM alerts), (SELECT MAX(id) FROM alerts), (SELECT MAX(id) FROM documents)").fetchone())
+
+    def one(sql):
+        return conn.execute(sql).fetchone()[0]
+
+    key = tuple(
+        conn.execute(
+            "SELECT (SELECT COUNT(*) FROM alerts), (SELECT MAX(id) FROM alerts), (SELECT MAX(id) FROM documents)"
+        ).fetchone()
+    )
     if _stats_cache.get("key") == key:
         return _stats_cache["data"]
     with _fill:
@@ -162,7 +197,10 @@ def insights_endpoint():
 
 @router.get("/api/sources")
 def sources():
-    docs = rows("SELECT title, source, alert_month, published, COALESCE(pdf_url, url) AS url, rows FROM documents ORDER BY published DESC")
+    docs = rows(
+        "SELECT title, source, alert_month, published, COALESCE(pdf_url, "
+        "url) AS url, rows FROM documents ORDER BY published DESC"
+    )
     return {"sources": SOURCES, "documents": docs}
 
 
@@ -178,12 +216,17 @@ def _nightly_ingest():
     if not conn.execute("SELECT 1 FROM ingest_runs LIMIT 1").fetchone():
         # first boot: the database was just built, record it as the baseline instead of re-downloading everything
         n = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
-        conn.execute("INSERT INTO ingest_runs (trigger, started_at, finished_at, status, alerts_before, alerts_after) VALUES ('baseline',?,?,'ok',?,?)",
-                     (now(), now(), n, n))
+        conn.execute(
+            (
+                "INSERT INTO ingest_runs (trigger, started_at, finished_at, status, "
+                "alerts_before, alerts_after) VALUES ('baseline',?,?,'ok',?,?)"
+            ),
+            (now(), now(), n, n),
+        )
 
     def loop():
         while True:
-            time.sleep(max(60, (_next_nightly() - datetime.now(timezone.utc)).total_seconds()))
+            time.sleep(max(60, (_next_nightly() - datetime.now(UTC)).total_seconds()))
             _refresh("nightly")
 
     threading.Thread(target=loop, daemon=True).start()

@@ -3,6 +3,7 @@
 Usage: python -m ingest.fetch [--limit N]
 Writes PDFs to data/raw_pdfs/ and an index to data/raw_pdfs/index.json.
 """
+
 import argparse
 import json
 import re
@@ -20,7 +21,20 @@ PAGES = [
 OUT = Path(__file__).resolve().parents[2] / "data" / "raw_pdfs"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Dosely research; PromptWars 2026)"}
 
-MONTHS = "january february march april may june july august september october november december".split()
+MONTHS = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+]
 
 
 def classify(title: str) -> str | None:
@@ -58,15 +72,17 @@ def discover() -> list[dict]:
             if url in seen:
                 continue
             seen.add(url)
-            docs.append({
-                "title": title,
-                "published": published,
-                "category_hint": cat,
-                "alert_month": alert_month(title, published),
-                "url": url,
-                "source_page": page,
-                "issuer": "state" if title.lower().startswith("state") else "cdsco",
-            })
+            docs.append(
+                {
+                    "title": title,
+                    "published": published,
+                    "category_hint": cat,
+                    "alert_month": alert_month(title, published),
+                    "url": url,
+                    "source_page": page,
+                    "issuer": "state" if title.lower().startswith("state") else "cdsco",
+                }
+            )
     return docs
 
 
@@ -78,7 +94,10 @@ def main():
 
 def main_for(limit: int):
     OUT.mkdir(parents=True, exist_ok=True)
-    pub = lambda d: datetime.strptime(d["published"], "%Y-%b-%d")
+
+    def pub(d):
+        return datetime.strptime(d["published"], "%Y-%b-%d")
+
     docs = sorted(discover(), key=pub, reverse=True)[:limit]
     for d in docs:
         num = re.search(r"num_id=([^&]+)", d["url"]).group(1).rstrip("=")

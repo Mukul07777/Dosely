@@ -3,6 +3,7 @@
 RapidOCR (PaddleOCR models on ONNX Runtime) runs on CPU with no API key.
 Field extraction is rule-based so every value can be traced to an OCR line.
 """
+
 import re
 from functools import lru_cache
 
@@ -11,9 +12,17 @@ import numpy as np
 # OCR often reads the "o" of "No." as a zero ("B.N0."). A 0 counts as that "o" only when "." ":" or a space
 # follows, so the leading zero of "B.N05240198" stays part of the batch.
 _NO = r"N(?:o|O|0(?=[.:\s]))"
-BATCH_RE = re.compile(rf"\b(?:B\.?\s*{_NO}?\.?|BATCH\s*(?:{_NO}\.?)?|LOT\s*(?:{_NO}\.?)?)\s*[:.\-]?\s*([A-Z0-9][A-Z0-9\-/]{{2,15}})", re.I)
-EXP_RE = re.compile(r"(?<![A-Z])(?:E?XP(?:IRY)?|USE\s*BEFORE|E\.?D\.?)\.?\s*(?:DATE)?\s*[:.\-]?\s*((?:\d{1,2}\s*[/\-.]\s*\d{2,4})|(?:[A-Z]{3}\.?\s*[/\-.]?\s*\d{2,4}))", re.I)
-MFG_RE = re.compile(r"\b(?:MFG|MFD|MANUF\w*|M\.?\s*D\.?)\.?\s*(?:DATE|DT)?\.?\s*[:.\-]?\s*((?:\d{1,2}\s*[/\-.]\s*\d{2,4})|(?:[A-Z]{3}\.?\s*[/\-.]?\s*\d{2,4}))", re.I)
+BATCH_RE = re.compile(
+    rf"\b(?:B\.?\s*{_NO}?\.?|BATCH\s*(?:{_NO}\.?)?|LOT\s*(?:{_NO}\.?)?)\s*[:.\-]?\s*([A-Z0-9][A-Z0-9\-/]{{2,15}})", re.I
+)
+EXP_RE = re.compile(
+    r"(?<![A-Z])(?:E?XP(?:IRY)?|USE\s*BEFORE|E\.?D\.?)\.?\s*(?:DATE)?\s*[:.\-]?\s*((?:\d{1,2}\s*[/\-.]\s*\d{2,4})|(?:[A-Z]{3}\.?\s*[/\-.]?\s*\d{2,4}))",
+    re.I,
+)
+MFG_RE = re.compile(
+    r"\b(?:MFG|MFD|MANUF\w*|M\.?\s*D\.?)\.?\s*(?:DATE|DT)?\.?\s*[:.\-]?\s*((?:\d{1,2}\s*[/\-.]\s*\d{2,4})|(?:[A-Z]{3}\.?\s*[/\-.]?\s*\d{2,4}))",
+    re.I,
+)
 MAKER_LABEL_RE = re.compile(r"(?:MFD\.?|MANUFACTURED|MARKETED|MKTD\.?)\s*BY\s*[:.\-]?\s*(.*)", re.I)
 COMPANY_RE = re.compile(r"\b(LTD|LIMITED|PVT|PRIVATE|PHARMA\w*|LABORATORIES|LABS|HEALTHCARE|LIFESCIENCES?)\b", re.I)
 # "No. DOB5480" with the "B." cut off at the strip edge; never "Mfg. Lic. No." or "Regd. No.".
@@ -44,19 +53,21 @@ def read_lines(image_bytes: bytes, long_side: int = 2000) -> list[dict]:
     lines = []
     for box, text, conf in result or []:
         ys, xs = [p[1] for p in box], [p[0] for p in box]
-        lines.append({"text": text.strip(), "conf": float(conf), "height": max(ys) - min(ys), "top": min(ys), "left": min(xs)})
-    lines.sort(key=lambda l: (l["top"], l["left"]))
+        lines.append(
+            {"text": text.strip(), "conf": float(conf), "height": max(ys) - min(ys), "top": min(ys), "left": min(xs)}
+        )
+    lines.sort(key=lambda line: (line["top"], line["left"]))
 
     # Merge boxes on the same visual line ("Telma" + "H" -> "Telma H").
     merged: list[dict] = []
-    for l in lines:
+    for line in lines:
         prev = merged[-1] if merged else None
-        if prev and abs(l["top"] - prev["top"]) < 0.5 * min(l["height"], prev["height"]):
-            prev["text"] += " " + l["text"]
-            prev["conf"] = min(prev["conf"], l["conf"])
-            prev["height"] = max(prev["height"], l["height"])
+        if prev and abs(line["top"] - prev["top"]) < 0.5 * min(line["height"], prev["height"]):
+            prev["text"] += " " + line["text"]
+            prev["conf"] = min(prev["conf"], line["conf"])
+            prev["height"] = max(prev["height"], line["height"])
         else:
-            merged.append(dict(l))
+            merged.append(dict(line))
     return merged
 
 
@@ -65,16 +76,21 @@ def read_lines(image_bytes: bytes, long_side: int = 2000) -> list[dict]:
 # Packaging text that sits next to the maker's name but is not part of it.
 _MAKER_NOISE = re.compile(
     r"\b(?:regd\.?|registered|trade\s*mark(?:s)?(?:\s*(?:proprietor|owner|of))?|tm|®|™|marketed\s*by|mfd\.?\s*by|manufactured\s*by|"
-    r"mkt\.?\s*by|distributed\s*by|an\s+iso\s*\d*\s*certified\s*company)\b\.?", re.I)
+    r"mkt\.?\s*by|distributed\s*by|an\s+iso\s*\d*\s*certified\s*company)\b\.?",
+    re.I,
+)
 _SUFFIX = {"ltd": "Ltd", "pvt": "Pvt", "llp": "LLP", "inc": "Inc"}
 
 
 def tidy_maker(name: str | None) -> str | None:
-    """'MICRO LABS Trade Mark Proprietor' -> 'Micro Labs'. Shouting capitals become Title Case; acronyms of 2-3 letters stay."""
+    """'MICRO LABS Trade Mark Proprietor' -> 'Micro Labs'. Shouting capitals become Title Case; acronyms of 2-3
+    letters stay."""
     if not name:
         return name
     t = _MAKER_NOISE.sub(" ", name.replace("®", " ").replace("™", " "))
-    t = re.split(r",|\s-\s|\bat\b|\bplot\b|\bsurvey\b|contact|e-?mail|@|\bsec(?:tor|lor)\b|\d", t, flags=re.I)[0]  # an address often follows
+    t = re.split(r",|\s-\s|\bat\b|\bplot\b|\bsurvey\b|contact|e-?mail|@|\bsec(?:tor|lor)\b|\d", t, flags=re.I)[
+        0
+    ]  # an address often follows
     t = " ".join(t.split()).strip(" .:-")
     if t.isupper():
         t = " ".join(_SUFFIX.get(w.lower().strip("."), w if len(w) <= 3 else w.capitalize()) for w in t.split())
@@ -82,15 +98,35 @@ def tidy_maker(name: str | None) -> str | None:
 
 
 # Dosage-form words that OCR glues to the salt name ("ParacetamolTabletsIP") or misreads ("Tableis").
-_FORMS = {"tablets": "Tablets", "tablet": "Tablet", "capsules": "Capsules", "capsule": "Capsule", "syrup": "Syrup",
-          "injection": "Injection", "suspension": "Suspension", "ointment": "Ointment", "cream": "Cream", "drops": "Drops", "gel": "Gel"}
-_FORM_FIX = {"tableis": "tablets", "tabiets": "tablets", "tablcts": "tablets", "tabtets": "tablets", "tabels": "tablets", "lablets": "tablets",
-             "capsuies": "capsules", "capsulcs": "capsules"}
+_FORMS = {
+    "tablets": "Tablets",
+    "tablet": "Tablet",
+    "capsules": "Capsules",
+    "capsule": "Capsule",
+    "syrup": "Syrup",
+    "injection": "Injection",
+    "suspension": "Suspension",
+    "ointment": "Ointment",
+    "cream": "Cream",
+    "drops": "Drops",
+    "gel": "Gel",
+}
+_FORM_FIX = {
+    "tableis": "tablets",
+    "tabiets": "tablets",
+    "tablcts": "tablets",
+    "tabtets": "tablets",
+    "tabels": "tablets",
+    "lablets": "tablets",
+    "capsuies": "capsules",
+    "capsulcs": "capsules",
+}
 
 
 @lru_cache(maxsize=1)
 def salt_words() -> frozenset:
-    """Single-word salt names from the medicine dataset (paracetamol, telmisartan, ...). Empty before the first ingest."""
+    """Single-word salt names from the medicine dataset (paracetamol, telmisartan, ...). Empty before the first
+    ingest."""
     import sqlite3
 
     from db import DB_PATH
@@ -111,13 +147,16 @@ def salt_words() -> frozenset:
 def tidy_brand(text: str | None, vocab: frozenset | None = None) -> str | None:
     """'aracelamolTableisIP' -> 'Paracetamol Tablets IP'.
 
-    Only for a generic-name line, the way a plain strip prints its salt ("Paracetamol Tablets IP"): once un-glued it holds a
-    dosage-form word or IP / BP / USP. Brand names ("Bacfen", "Mytrip", "DavaIndia") are returned exactly as read: on 20,000
+    Only for a generic-name line, the way a plain strip prints its salt ("Paracetamol Tablets IP"): once un-glued it
+    holds a
+    dosage-form word or IP / BP / USP. Brand names ("Bacfen", "Mytrip", "DavaIndia") are returned exactly as read: on
+    20,000
     real brand names, correcting everything renamed 3.35% of them (Bacfen -> Baclofen), which is worse than a typo.
 
     1. Split words OCR glued together (before a capital, before a form word, IP / BP / USP after a form word).
     2. Fix common misreadings of form words ("Tableis" -> "Tablets").
-    3. Snap a misread salt to the closest real salt name when it is a near match (ratio >= 85), e.g. a lost first letter."""
+    3. Snap a misread salt to the closest real salt name when it is a near match (ratio >= 85), e.g. a lost first
+    letter."""
     if not text:
         return text
     from rapidfuzz import fuzz, process
@@ -125,11 +164,12 @@ def tidy_brand(text: str | None, vocab: frozenset | None = None) -> str | None:
     vocab = salt_words() if vocab is None else vocab
     forms = sorted(set(_FORMS) | set(_FORM_FIX), key=len, reverse=True)
     form_alt = "|".join(forms)
-    # "gel", "drops", "cream" often end a brand ("Mucogel", "Softdrops"): only long form words are split off a glued word
+    # "gel", "drops", "cream" often end a brand ("Mucogel", "Softdrops"): only long form words are split off a glued
+    # word
     glue_alt = "|".join(f for f in forms if len(f) >= 6)
-    t = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text)                                  # camelCase glue
-    t = re.sub(rf"(?i)(?<=[a-z])(?=(?:{glue_alt})(?:ip|bp|usp)?\b)", " ", t)        # ParacetamolTablets
-    t = re.sub(rf"(?i)\b({form_alt})(ip|bp|usp)\b", r"\1 \2", t)                     # TabletsIP
+    t = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text)  # camelCase glue
+    t = re.sub(rf"(?i)(?<=[a-z])(?=(?:{glue_alt})(?:ip|bp|usp)?\b)", " ", t)  # ParacetamolTablets
+    t = re.sub(rf"(?i)\b({form_alt})(ip|bp|usp)\b", r"\1 \2", t)  # TabletsIP
     if not re.search(rf"(?i)\b(?:{form_alt}|ip|bp|usp)\b", t):
         return text  # not a generic-name line: a brand, keep it exactly
     for bad, good in _FORM_FIX.items():
@@ -158,8 +198,11 @@ def tidy_brand(text: str | None, vocab: frozenset | None = None) -> str | None:
 
 
 # Words of warning, dosage and price lines that sit in large type but are never the brand.
-_NOT_BRAND = re.compile(r"\b(?:from|contains?|warning|important|overdose|injurious|liver|taxes|incl|mrp|per|tablets?\s+ip|"
-                        r"physician|doctor|pregnancy|children|relief|pain|effervescent|dissolves?|reach|caution)\b|[()（）]", re.I)
+_NOT_BRAND = re.compile(
+    r"\b(?:from|contains?|warning|important|overdose|injurious|liver|taxes|incl|mrp|per|tablets?\s+ip|"
+    r"physician|doctor|pregnancy|children|relief|pain|effervescent|dissolves?|reach|caution)\b|[()（）]",
+    re.I,
+)
 # What OCR glues onto the end of a batch number: the next field's label ("DFNY0223MFG").
 _BATCH_TAIL = re.compile(r"(?:MFG|MFD|EXP|MRP|DATE)$", re.I)
 
@@ -174,7 +217,7 @@ def clean_batch(b: str) -> str:
 
 
 def extract_fields(lines: list[dict]) -> dict:
-    texts = [l["text"] for l in lines]
+    texts = [line["text"] for line in lines]
     joined = "\n".join(texts)
     fields = {"batch": None, "expiry": None, "mfg_date": None, "maker": None, "brand": None}
     conf = {}
@@ -194,8 +237,14 @@ def extract_fields(lines: list[dict]) -> dict:
 
     if not fields["batch"]:
         for i, t in enumerate(texts):
-            m = next((m for m in BARE_NO_RE.finditer(t) if not _NOT_BATCH_BEFORE.search(t[:m.start()])
-                      and any(c.isdigit() for c in m.group(1))), None)
+            m = next(
+                (
+                    m
+                    for m in BARE_NO_RE.finditer(t)
+                    if not _NOT_BATCH_BEFORE.search(t[: m.start()]) and any(c.isdigit() for c in m.group(1))
+                ),
+                None,
+            )
             if m:
                 fields["batch"], conf["batch"] = m.group(1).upper(), lines[i]["conf"]
                 break
@@ -211,26 +260,45 @@ def extract_fields(lines: list[dict]) -> dict:
     fields["maker"] = tidy_maker(fields["maker"])
 
     # Brand: the tallest text that isn't a label field.
-    skip = re.compile(r"\d{2}[/\-.]\d{2}|B\.?\s*N[O0]|BATCH|EXP|MFG|MFD|LTD|LIMITED|PVT|SCHEDULE|RX|DOSAGE|STORE|KEEP|MADE\s*IN|MFD\s*BY|MARKETED"
-                      r"|\d{6,}|TOLL|FREE", re.I)
+    skip = re.compile(
+        r"\d{2}[/\-.]\d{2}|B\.?\s*N[O0]|BATCH|EXP|MFG|MFD|LTD|LIMITED|PVT|SCHEDULE|RX|DOSAGE|STORE|KEEP|MADE\s*IN|MFD\s*BY|MARKETED"
+        r"|\d{6,}|TOLL|FREE",
+        re.I,
+    )
+
     # "Dol0-500" / "Dol6-500": a lone 0 or 6 between a word and its strength is the letter o.
-    unzero = lambda s: re.sub(r"(?<=[A-Za-z]{2})[06](?=-\d{2,4}\b)", "o", s)
+    def unzero(s):
+        return re.sub(r"(?<=[A-Za-z]{2})[06](?=-\d{2,4}\b)", "o", s)
+
     # A brand is a short name, not a sentence of warning text that OCR read in a large font.
-    candidates = [l for l in lines if len(l["text"]) >= 3 and not skip.search(l["text"]) and l["conf"] > 0.6
-                  and len(l["text"]) <= 30 and len(l["text"].split()) <= 4 and not _NOT_BRAND.search(l["text"])]
+    candidates = [
+        line
+        for line in lines
+        if len(line["text"]) >= 3
+        and not skip.search(line["text"])
+        and line["conf"] > 0.6
+        and len(line["text"]) <= 30
+        and len(line["text"].split()) <= 4
+        and not _NOT_BRAND.search(line["text"])
+    ]
     if candidates:
-        best = max(candidates, key=lambda l: l["height"])
+        best = max(candidates, key=lambda line: line["height"])
         fields["brand"], conf["brand"] = tidy_brand(unzero(best["text"])), best["conf"]
         # Strips repeat the brand all over the foil ("Dolo-650 Dolo-650 ..."): a name printed 3+ times is the brand.
         counts: dict[str, int] = {}
         for t in texts:
             for w in re.findall(r"[A-Za-z][A-Za-z]{2,}(?:-?\d{2,4})?", unzero(t)):
                 counts[w.lower()] = counts.get(w.lower(), 0) + 1
-        rep = [w for w in re.findall(r"[A-Za-z][A-Za-z]{2,}(?:-?\d{2,4})?", unzero(best["text"])) if counts[w.lower()] >= 3 and not skip.search(w)]
+        rep = [
+            w
+            for w in re.findall(r"[A-Za-z][A-Za-z]{2,}(?:-?\d{2,4})?", unzero(best["text"]))
+            if counts[w.lower()] >= 3 and not skip.search(w)
+        ]
         if rep:
             fields["brand"] = max(rep, key=lambda w: (counts[w.lower()], len(w)))
 
-    # A name with its strength ("PARACIP-500") printed twice or more is the brand, even when OCR merged it into a long line.
+    # A name with its strength ("PARACIP-500") printed twice or more is the brand, even when OCR merged it into a long
+    # line.
     named: dict[str, list[str]] = {}
     for t in texts:
         for w in re.findall(r"(?<![A-Za-z])[A-Za-z]{3,}-\d{2,4}\b", unzero(t)):
@@ -253,21 +321,21 @@ def bill_candidates(lines: list[dict]) -> list[dict]:
     Bills put product, batch, expiry and price on one row; we keep the row text so
     the user can see which medicine each candidate belongs to."""
     out, seen = [], set()
-    for l in lines:
-        for tok in TOKEN_RE.findall(l["text"].upper()):
+    for line in lines:
+        for tok in TOKEN_RE.findall(line["text"].upper()):
             t = tok.strip("-/")
             has_digit, has_alpha = any(c.isdigit() for c in t), any(c.isalpha() for c in t)
             glued = re.search(r"\d[A-Z]{3,}", t)  # OCR-merged words like "NIMCEF200TAB", "4471DATE"
             if not has_digit or glued or NOT_BATCH.match(t) or (not has_alpha and not 5 <= len(t) <= 9) or t in seen:
                 continue
             seen.add(t)
-            out.append({"batch": t, "line": l["text"], "conf": l["conf"]})
+            out.append({"batch": t, "line": line["text"], "conf": line["conf"]})
     return out
 
 
 def scan_bill(image_bytes: bytes) -> dict:
     lines = read_lines(image_bytes)
-    return {"candidates": bill_candidates(lines), "lines": [l["text"] for l in lines]}
+    return {"candidates": bill_candidates(lines), "lines": [line["text"] for line in lines]}
 
 
 def _rotated(image_bytes: bytes, code: int) -> bytes:
@@ -284,7 +352,7 @@ def scan(image_bytes: bytes) -> dict:
 
     lines = read_lines(image_bytes)
     out = extract_fields(lines)
-    texts = [l["text"] for l in lines]
+    texts = [line["text"] for line in lines]
     for code in (cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_90_COUNTERCLOCKWISE):
         if out["fields"]["batch"]:
             break
@@ -295,5 +363,5 @@ def scan(image_bytes: bytes) -> dict:
                 out["fields"][k] = got["fields"][k]
                 if k in got["confidence"]:
                     out["confidence"][k] = got["confidence"][k]
-        texts += ["(sideways) " + l["text"] for l in side]
+        texts += ["(sideways) " + line["text"] for line in side]
     return {**out, "lines": texts}

@@ -4,10 +4,11 @@ Shared state and helpers (database connection, alert matching, device ids) live 
 Background work (nightly ingest, dose reminders, caregiver alerts, cache warm-up, Telegram polling)
 registers with core.on_startup and runs from the lifespan below.
 """
+
 import os
 import time
-from urllib.parse import urlsplit
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,11 +19,36 @@ import core
 import sessions
 import telegram  # noqa: F401  (re-exported for tests)
 from core import (  # noqa: F401  (re-exported: tests and tools import these from main)
-    NIGHTLY_HOUR_IST, _next_nightly, _refresh, _timings, alert_device, candidates, conn, now,
+    NIGHTLY_HOUR_IST,
+    _next_nightly,
+    _refresh,
+    _timings,
+    alert_device,
+    candidates,
+    conn,
+    now,
 )
 from routes import (
-    account, alerts, blast_radius, care_circle, care_plan, checkins, dadi, doctor_connect, emergency, family, live_vitals, medicines,
-    notifications, pack_radar, pharmacy, recall_live, reference, reports, telegram_bot, watchlist,
+    account,
+    alerts,
+    blast_radius,
+    care_circle,
+    care_plan,
+    checkins,
+    dadi,
+    doctor_connect,
+    emergency,
+    family,
+    live_vitals,
+    medicines,
+    notifications,
+    pack_radar,
+    pharmacy,
+    recall_live,
+    reference,
+    reports,
+    telegram_bot,
+    watchlist,
     whatsapp_bot,
 )
 from routes.care_plan import send_due_reminders  # noqa: F401
@@ -43,14 +69,23 @@ app = FastAPI(title="Dosely API", lifespan=lifespan)
 
 # The web app calls the API through its own origin (Next.js rewrites /api), so browsers need no CORS at all.
 # KINCARE_ORIGINS lists any other site allowed to call it with credentials (comma separated).
-ORIGINS = [o.strip() for o in os.environ.get("KINCARE_ORIGINS", os.environ.get("PUBLIC_WEB_URL", "http://localhost:3000")).split(",") if o.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_credentials=True,
-                   allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type", "Authorization", "X-KinCare", "X-Circle-Token"])
+ORIGINS = [
+    o.strip()
+    for o in os.environ.get("KINCARE_ORIGINS", os.environ.get("PUBLIC_WEB_URL", "http://localhost:3000")).split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization", "X-KinCare", "X-Circle-Token"],
+)
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
-    "Referrer-Policy": "no-referrer",          # doctor / check-in links carry their token in the URL
+    "Referrer-Policy": "no-referrer",  # doctor / check-in links carry their token in the URL
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",  # JSON only; /docs gets the default below
@@ -70,10 +105,13 @@ def _from_this_site(request: Request, origin: str) -> bool:
 
 @app.middleware("http")
 async def _guard(request: Request, call_next):
-    """CSRF: a request authenticated by the session cookie that changes data must carry X-KinCare (a custom header another
+    """CSRF: a request authenticated by the session cookie that changes data must carry X-KinCare (a custom header
+    another
     site can't add without a CORS preflight we refuse) and, when the browser says where it came from, an allowed Origin.
     Bearer-token clients and webhooks carry no cookie, so they are unaffected."""
-    uses_cookie = sessions.COOKIE in request.cookies and not request.headers.get("authorization", "").lower().startswith("bearer ")
+    uses_cookie = sessions.COOKIE in request.cookies and not request.headers.get(
+        "authorization", ""
+    ).lower().startswith("bearer ")
     if request.method in UNSAFE and request.url.path.startswith("/api/") and uses_cookie:
         origin = request.headers.get("origin")
         if request.headers.get("x-kincare") != "1" or (origin and not _from_this_site(request, origin)):
@@ -102,7 +140,27 @@ async def _time_requests(request: Request, call_next):
 
 
 # Same order as the sections of the old single-file main.py, so route matching is unchanged.
-for area in (alerts, recall_live, checkins, care_plan, pharmacy, watchlist, reports, account, emergency, blast_radius,
-             live_vitals, medicines, whatsapp_bot, pack_radar, notifications, reference, doctor_connect, family, dadi, telegram_bot,
-             care_circle):
+for area in (
+    alerts,
+    recall_live,
+    checkins,
+    care_plan,
+    pharmacy,
+    watchlist,
+    reports,
+    account,
+    emergency,
+    blast_radius,
+    live_vitals,
+    medicines,
+    whatsapp_bot,
+    pack_radar,
+    notifications,
+    reference,
+    doctor_connect,
+    family,
+    dadi,
+    telegram_bot,
+    care_circle,
+):
     app.include_router(area.router)

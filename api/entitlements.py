@@ -6,9 +6,10 @@ Tiers (each includes the one below): free < basic < family < pharmacy < pharmacy
   the pharmacy pays, its customers get WhatsApp reminders free. That is Dosely's distribution channel.
 - KINCARE_ALL_ACCESS=1 unlocks everything (stage demos, development).
 """
+
 import os
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import billing
 
@@ -31,7 +32,9 @@ CREATE TABLE IF NOT EXISTS accounts (
 
 
 def seen(conn: sqlite3.Connection, device: str) -> None:
-    conn.execute("INSERT OR IGNORE INTO accounts (device, first_seen) VALUES (?, ?)", (device, datetime.now(timezone.utc).isoformat()))
+    conn.execute(
+        "INSERT OR IGNORE INTO accounts (device, first_seen) VALUES (?, ?)", (device, datetime.now(UTC).isoformat())
+    )
 
 
 def tier_of(plan_id: str | None) -> str:
@@ -41,9 +44,12 @@ def tier_of(plan_id: str | None) -> str:
 
 def active_plan(conn: sqlite3.Connection, device: str) -> dict | None:
     """Latest paid plan still inside its billing period (31 days monthly, 366 days yearly)."""
-    for r in conn.execute("SELECT plan, paid_at, email FROM payments WHERE device = ? AND status = 'paid' ORDER BY paid_at DESC", (device,)):
+    for r in conn.execute(
+        "SELECT plan, paid_at, email FROM payments WHERE device = ? AND status = 'paid' ORDER BY paid_at DESC",
+        (device,),
+    ):
         days = 366 if billing.PLANS.get(r["plan"], {}).get("interval") == "year" else 31
-        if datetime.fromisoformat(r["paid_at"].replace("Z", "+00:00")) > datetime.now(timezone.utc) - timedelta(days=days):
+        if datetime.fromisoformat(r["paid_at"].replace("Z", "+00:00")) > datetime.now(UTC) - timedelta(days=days):
             return dict(r)
     return None
 
@@ -67,8 +73,8 @@ def of(conn: sqlite3.Connection, device: str) -> dict:
         t = tier_of(paid["plan"])
         return {"tier": t, "plan": paid["plan"], "trial_days_left": None, **LIMITS[t]}
     r = conn.execute("SELECT first_seen FROM accounts WHERE device = ?", (device,)).fetchone()
-    first = datetime.fromisoformat(r[0]) if r else datetime.now(timezone.utc)
-    left = TRIAL_DAYS - (datetime.now(timezone.utc) - first).days
+    first = datetime.fromisoformat(r[0]) if r else datetime.now(UTC)
+    left = TRIAL_DAYS - (datetime.now(UTC) - first).days
     if left > 0:
         return {"tier": "family", "plan": "trial", "trial_days_left": left, **LIMITS["family"]}
     return {"tier": "free", "plan": "free", "trial_days_left": 0, **LIMITS["free"]}
@@ -83,8 +89,10 @@ def can_add_member(conn: sqlite3.Connection, device: str, member: str) -> tuple[
     members = {r[0] for r in conn.execute("SELECT DISTINCT member FROM plans WHERE device = ?", (device,))}
     if member in members or len(members) < ent["members"]:
         return True, None
-    return False, (f"Your plan covers {ent['members']} person. Family (₹69/month) covers up to 6 people; "
-                   "batch checks and recall alerts stay free.")
+    return False, (
+        f"Your plan covers {ent['members']} person. Family (₹69/month) covers up to 6 people; "
+        "batch checks and recall alerts stay free."
+    )
 
 
 def whatsapp_reminders_ok(conn: sqlite3.Connection, device: str, phone: str) -> tuple[bool, str | None]:
@@ -97,6 +105,14 @@ def whatsapp_reminders_ok(conn: sqlite3.Connection, device: str, phone: str) -> 
     ent = of(conn, device)
     if not at_least(ent, "basic"):
         return False, None
-    used = {r[0] for r in conn.execute(
-        "SELECT DISTINCT m.phone FROM plan_meds m JOIN plans p ON p.id = m.plan_id WHERE p.device = ? AND m.phone IS NOT NULL", (device,))}
+    used = {
+        r[0]
+        for r in conn.execute(
+            (
+                "SELECT DISTINCT m.phone FROM plan_meds m JOIN plans p ON "
+                "p.id = m.plan_id WHERE p.device = ? AND m.phone IS NOT NULL"
+            ),
+            (device,),
+        )
+    }
     return (phone in used or len(used) < ent["wa"]), None

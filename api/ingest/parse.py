@@ -3,6 +3,7 @@
 Columns differ between files, so headers are mapped by keyword. Tables that
 continue onto later pages without a header reuse the last header seen.
 """
+
 import re
 from pathlib import Path
 
@@ -58,7 +59,9 @@ def brand_of(product: str) -> str:
     if not m:
         return product
     head, inner = m.group(1).strip(), m.group(2).strip()
-    generic = re.search(r"\b(i\.?p\.?|b\.?p\.?|u\.?s\.?p\.?|tablets?|injection|capsules?|syrup|suspension)\b", head, re.I)
+    generic = re.search(
+        r"\b(i\.?p\.?|b\.?p\.?|u\.?s\.?p\.?|tablets?|injection|capsules?|syrup|suspension)\b", head, re.I
+    )
     if generic and len(inner.split()) <= 3:
         return inner
     return head
@@ -76,24 +79,31 @@ def parse_pdf(path: Path) -> list[dict]:
                         continue
                     if not header or len(raw) <= max(header.values()):
                         continue
-                    get = lambda k: clean(raw[header[k]]) if k in header else ""
+
+                    def get(k, raw=raw, header=header):
+                        return clean(raw[header[k]]) if k in header else ""
+
                     # Some files split the product header over empty merged columns.
-                    product = next((clean(raw[i]) for i in range(header["product"], header["batch"]) if clean(raw[i])), "")
+                    product = next(
+                        (clean(raw[i]) for i in range(header["product"], header["batch"]) if clean(raw[i])), ""
+                    )
                     batch = get("batch")
                     if not product or not batch or batch in ("-", "NA", "N/A"):
                         continue
                     full_maker = get("manufacturer")
-                    rows.append({
-                        "product_name": product,
-                        "brand": brand_of(product),
-                        "batch_no": batch,
-                        "mfg_date": get("mfg_date"),
-                        "expiry": get("expiry"),
-                        "manufacturer": maker_name(full_maker) if full_maker else "",
-                        "manufacturer_full": full_maker,
-                        "reason": get("reason"),
-                        "reported_by": get("reported_by"),
-                        "remarks": get("remarks"),
-                        "pdf_page": page_no,
-                    })
+                    rows.append(
+                        {
+                            "product_name": product,
+                            "brand": brand_of(product),
+                            "batch_no": batch,
+                            "mfg_date": get("mfg_date"),
+                            "expiry": get("expiry"),
+                            "manufacturer": maker_name(full_maker) if full_maker else "",
+                            "manufacturer_full": full_maker,
+                            "reason": get("reason"),
+                            "reported_by": get("reported_by"),
+                            "remarks": get("remarks"),
+                            "pdf_page": page_no,
+                        }
+                    )
     return rows

@@ -4,15 +4,19 @@ Gemini only *explains* the numbers we already computed (adherence, often-missed 
 It is told never to suggest, change or stop a medicine. Without GEMINI_API_KEY, or if the call fails,
 a deterministic note is returned, so the feature never breaks.
 """
+
 import os
 
 import requests
 
 MODEL = lambda: os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"  # noqa: E731
-RULES = ("You write a short care note (max 90 words) for an elderly person in India and their family. "
-         "Be warm and respectful, speak to the elder directly, simple words, no medical jargon. "
-         "Never suggest starting, stopping, changing or doubling any medicine or dose; for any concern say 'ask your doctor'. "
-         "Mention one thing going well, one gentle focus for this week, and the next appointment if any. No markdown.")
+RULES = (
+    "You write a short care note (max 90 words) for an elderly person in India and their family. "
+    "Be warm and respectful, speak to the elder directly, simple words, no medical jargon. "
+    "Never suggest starting, stopping, changing or doubling any "
+    "medicine or dose; for any concern say 'ask your doctor'. "
+    "Mention one thing going well, one gentle focus for this week, and the next appointment if any. No markdown."
+)
 
 
 def ready() -> bool:
@@ -22,9 +26,11 @@ def ready() -> bool:
 def facts(elder: str, adherence: dict, appts: list[dict]) -> str:
     missed = [f"{m['name']} ({m['pct']}%)" for m in adherence["medicines"] if m["pct"] is not None and m["pct"] < 80]
     nxt = f"{appts[0]['doctor']} on {appts[0]['at'].replace('T', ' at ')}" if appts else "none booked"
-    return (f"Elder: {elder}. Doses taken last 7 days: {adherence['pct_7']}%. Last 30 days: {adherence['pct_30']}%. "
-            f"Days in a row with every dose: {adherence['streak_days']}. "
-            f"Often missed: {', '.join(missed) or 'none'}. Next appointment: {nxt}.")
+    return (
+        f"Elder: {elder}. Doses taken last 7 days: {adherence['pct_7']}%. Last 30 days: {adherence['pct_30']}%. "
+        f"Days in a row with every dose: {adherence['streak_days']}. "
+        f"Often missed: {', '.join(missed) or 'none'}. Next appointment: {nxt}."
+    )
 
 
 def fallback(elder: str, adherence: dict, appts: list[dict], lang: str) -> str:
@@ -49,10 +55,14 @@ def care_note(elder: str, adherence: dict, appts: list[dict], lang: str = "en") 
         try:
             r = requests.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL()}:generateContent",
-                headers={"x-goog-api-key": os.environ["GEMINI_API_KEY"]}, timeout=20,
-                json={"systemInstruction": {"parts": [{"text": RULES}]},
-                      "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                      "generationConfig": {"temperature": 0.4, "maxOutputTokens": 300}})
+                headers={"x-goog-api-key": os.environ["GEMINI_API_KEY"]},
+                timeout=20,
+                json={
+                    "systemInstruction": {"parts": [{"text": RULES}]},
+                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": 0.4, "maxOutputTokens": 300},
+                },
+            )
             r.raise_for_status()
             text = "".join(p.get("text", "") for p in r.json()["candidates"][0]["content"]["parts"]).strip()
             if text:

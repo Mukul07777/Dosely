@@ -4,6 +4,7 @@ Text comes from the official US FDA label of each salt (openFDA, cached). Indian
 salt, not always the label, so the page says so. Dosely adds what no label has: CDSCO batch alerts
 for that salt, the maker's record, and where this brand sits on price.
 """
+
 import json
 import re
 import sqlite3
@@ -16,11 +17,24 @@ FDA = "https://api.fda.gov/drug/label.json"
 
 # Indian (INN / BP) salt names -> US label names where they differ.
 US_NAME = {
-    "paracetamol": "acetaminophen", "amoxycillin": "amoxicillin", "salbutamol": "albuterol", "levosalbutamol": "levalbuterol",
-    "glibenclamide": "glyburide", "frusemide": "furosemide", "adrenaline": "epinephrine", "noradrenaline": "norepinephrine",
-    "thyroxine": "levothyroxine", "levothyroxine sodium": "levothyroxine", "cholecalciferol": "cholecalciferol",
-    "clavulanic acid": "clavulanate potassium", "potassium clavulanate": "clavulanate potassium", "rabeprazole": "rabeprazole sodium",
-    "metformin": "metformin hydrochloride", "ondansetron": "ondansetron", "lignocaine": "lidocaine", "pethidine": "meperidine",
+    "paracetamol": "acetaminophen",
+    "amoxycillin": "amoxicillin",
+    "salbutamol": "albuterol",
+    "levosalbutamol": "levalbuterol",
+    "glibenclamide": "glyburide",
+    "frusemide": "furosemide",
+    "adrenaline": "epinephrine",
+    "noradrenaline": "norepinephrine",
+    "thyroxine": "levothyroxine",
+    "levothyroxine sodium": "levothyroxine",
+    "cholecalciferol": "cholecalciferol",
+    "clavulanic acid": "clavulanate potassium",
+    "potassium clavulanate": "clavulanate potassium",
+    "rabeprazole": "rabeprazole sodium",
+    "metformin": "metformin hydrochloride",
+    "ondansetron": "ondansetron",
+    "lignocaine": "lidocaine",
+    "pethidine": "meperidine",
 }
 
 # Label section -> what the patient sees. First section found wins (Rx labels and OTC labels name them differently).
@@ -62,7 +76,8 @@ def _clean(text: str) -> str:
 
 
 def label(conn: sqlite3.Connection, generic: str) -> dict | None:
-    """Patient-facing sections of the FDA label for one salt. None = offline (not cached, retried later); {} = no label."""
+    """Patient-facing sections of the FDA label for one salt. None = offline (not cached, retried later); {} = no
+    label."""
     conn.execute("CREATE TABLE IF NOT EXISTS fda_info (generic TEXT PRIMARY KEY, body TEXT)")
     row = conn.execute("SELECT body FROM fda_info WHERE generic = ?", (generic,)).fetchone()
     if row:
@@ -92,10 +107,16 @@ def salt_alerts(conn: sqlite3.Connection, salts: list[str], limit: int = 8) -> d
     salt = salts[0].split()[0]  # "metformin hydrochloride" -> "metformin": product names in alerts are free text
     like = f"%{salt}%"
     total, spurious = conn.execute(
-        "SELECT COUNT(*), COALESCE(SUM(category = 'spurious'), 0) FROM alerts WHERE lower(product_name) LIKE ?", (like,)).fetchone()
-    recent = [dict(r) for r in conn.execute(
-        """SELECT id, product_name, batch_no, manufacturer, category, reason, alert_month FROM alerts
-           WHERE lower(product_name) LIKE ? ORDER BY alert_month DESC, id DESC LIMIT ?""", (like, limit))]
+        "SELECT COUNT(*), COALESCE(SUM(category = 'spurious'), 0) FROM alerts WHERE lower(product_name) LIKE ?", (like,)
+    ).fetchone()
+    recent = [
+        dict(r)
+        for r in conn.execute(
+            """SELECT id, product_name, batch_no, manufacturer, category, reason, alert_month FROM alerts
+           WHERE lower(product_name) LIKE ? ORDER BY alert_month DESC, id DESC LIMIT ?""",
+            (like, limit),
+        )
+    ]
     return {"salt": salt, "total": total, "spurious": spurious, "recent": recent}
 
 
@@ -112,6 +133,11 @@ def info(conn: sqlite3.Connection, mid: int) -> dict | None:
         "medicine": alt["medicine"],
         "salts": salts,
         "alerts": salt_alerts(conn, names),
-        "price": {"brands": alt["brands"], "rank": alt["rank"], "unit_price": alt["unit_price"], "cheapest_clean": alt["cheapest_clean"]},
+        "price": {
+            "brands": alt["brands"],
+            "rank": alt["rank"],
+            "unit_price": alt["unit_price"],
+            "cheapest_clean": alt["cheapest_clean"],
+        },
         "source": "US FDA drug labels (openFDA, api.fda.gov), by salt",
     }

@@ -2,6 +2,7 @@
 
 Dosely only shows prices. Switching brand is a decision for the patient's doctor or pharmacist.
 """
+
 import re
 from statistics import median
 
@@ -42,7 +43,10 @@ _fts_ready = False
 def ensure_fts(conn) -> None:
     """Build the trigram index once (a few seconds; run in the background at startup). Rebuilt if the list changes."""
     global _fts_ready
-    conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS medicines_fts USING fts5(name_lc, content='medicines', content_rowid='id', tokenize='trigram')")
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS medicines_fts USING fts5(name_lc, "
+        "content='medicines', content_rowid='id', tokenize='trigram')"
+    )
     conn.execute("CREATE TABLE IF NOT EXISTS fts_state (name TEXT PRIMARY KEY, n INTEGER)")
     n = conn.execute("SELECT COUNT(*) FROM medicines").fetchone()[0]
     built = conn.execute("SELECT n FROM fts_state WHERE name = 'medicines'").fetchone()
@@ -67,7 +71,8 @@ def search(conn, q: str, limit: int = 10) -> list[dict]:
     rows = conn.execute(
         f"""SELECT * FROM medicines WHERE {where} OR (salt_key >= ? AND salt_key < ?)
             ORDER BY (name_lc LIKE ?) DESC, length(name), id LIMIT ?""",
-        (*[f"%{w}%" for w in words], like, like + "￿", f"{like}%", limit)).fetchall()
+        (*[f"%{w}%" for w in words], like, like + "￿", f"{like}%", limit),
+    ).fetchall()
     return [_row(conn, r) for r in rows]
 
 
@@ -75,8 +80,10 @@ def alternatives(conn, mid: int, limit: int = 20) -> dict | None:
     m = conn.execute("SELECT * FROM medicines WHERE id = ?", (mid,)).fetchone()
     if not m:
         return None
-    same = conn.execute("SELECT * FROM medicines WHERE salt_key = ? AND form = ? AND unit_price IS NOT NULL ORDER BY unit_price",
-                        (m["salt_key"], m["form"])).fetchall()
+    same = conn.execute(
+        "SELECT * FROM medicines WHERE salt_key = ? AND form = ? AND unit_price IS NOT NULL ORDER BY unit_price",
+        (m["salt_key"], m["form"]),
+    ).fetchall()
     prices = [r["unit_price"] for r in same]
     alts = [_row(conn, r) for r in same if r["id"] != mid]
     me = _row(conn, m)
@@ -87,8 +94,11 @@ def alternatives(conn, mid: int, limit: int = 20) -> dict | None:
         "medicine": me,
         "brands": len(same),
         "rank": next((i + 1 for i, r in enumerate(same) if r["id"] == mid), None),
-        "unit_price": {"min": prices[0] if prices else None, "median": round(median(prices), 3) if prices else None,
-                       "max": prices[-1] if prices else None},
+        "unit_price": {
+            "min": prices[0] if prices else None,
+            "median": round(median(prices), 3) if prices else None,
+            "max": prices[-1] if prices else None,
+        },
         "cheapest_clean": clean,
         "alternatives": alts[:limit],
     }
@@ -108,18 +118,31 @@ def match_plan_med(conn, name: str, strength: str | None):
     tries = [(by_name, (f"{n}%{strength_txt}%",))] if strength_txt else []
     tries.append((by_name, (f"{n}%",)))
     if strength_txt:
-        # Brand stem + strength from the salt: "Warf 5mg" -> "Warf 5 Tablet", "Crocin 500" -> "Crocin Advance" (paracetamol 500mg).
+        # Brand stem + strength from the salt: "Warf 5mg" -> "Warf 5 Tablet", "Crocin 500" -> "Crocin Advance"
+        # (paracetamol 500mg).
         stem = re.sub(r"\s*\d.*$", "", n).strip()
         if len(stem) >= 3:
-            tries.append(("SELECT * FROM medicines WHERE name_lc LIKE ? AND salt_key LIKE ? AND form LIKE 'tablet%' ORDER BY length(name) LIMIT 1",
-                          (f"{stem} %", f"%({strength_txt})%")))
+            tries.append(
+                (
+                    (
+                        "SELECT * FROM medicines WHERE name_lc LIKE ? AND salt_key "
+                        "LIKE ? AND form LIKE 'tablet%' ORDER BY length(name) LIMIT 1"
+                    ),
+                    (f"{stem} %", f"%({strength_txt})%"),
+                )
+            )
     for sql, args in tries:
         r = conn.execute(sql, args).fetchone()
         if r:
             return r, False
     if strength_txt:  # written as a generic name: price it at the median brand, and say it's an estimate
-        same = conn.execute("SELECT * FROM medicines WHERE salt_key = ? AND form = 'tablet' AND unit_price IS NOT NULL ORDER BY unit_price",
-                            (f"{n} ({strength_txt})",)).fetchall()
+        same = conn.execute(
+            (
+                "SELECT * FROM medicines WHERE salt_key = ? AND form = "
+                "'tablet' AND unit_price IS NOT NULL ORDER BY unit_price"
+            ),
+            (f"{n} ({strength_txt})",),
+        ).fetchall()
         if same:
             return same[len(same) // 2], True
     return None, False
@@ -136,12 +159,36 @@ def plan_savings(conn, meds: list[dict]) -> dict:
             continue
         # Cheapest brand whose maker has no CDSCO alerts on record; cheaper must not mean riskier.
         record = maker_alerts(conn)
-        best = next((b for b in conn.execute("SELECT * FROM medicines WHERE salt_key = ? AND form = ? AND unit_price IS NOT NULL ORDER BY unit_price",
-                                             (r["salt_key"], r["form"])) if not record.get(b["maker_key"] or "")), r)
+        best = next(
+            (
+                b
+                for b in conn.execute(
+                    (
+                        "SELECT * FROM medicines WHERE salt_key = ? AND form "
+                        "= ? AND unit_price IS NOT NULL ORDER BY unit_price"
+                    ),
+                    (r["salt_key"], r["form"]),
+                )
+                if not record.get(b["maker_key"] or "")
+            ),
+            r,
+        )
         now_m, best_m = r["unit_price"] * per_day * 30, best["unit_price"] * per_day * 30
         now_total += now_m
         best_total += best_m
-        items.append({"name": med["name"], "matched": _row(conn, r), "estimated": estimated, "cheapest": _row(conn, best),
-                      "monthly_now": round(now_m), "monthly_cheapest": round(best_m)})
-    return {"items": items, "monthly_now": round(now_total), "monthly_cheapest": round(best_total),
-            "yearly_saving": round((now_total - best_total) * 12)}
+        items.append(
+            {
+                "name": med["name"],
+                "matched": _row(conn, r),
+                "estimated": estimated,
+                "cheapest": _row(conn, best),
+                "monthly_now": round(now_m),
+                "monthly_cheapest": round(best_m),
+            }
+        )
+    return {
+        "items": items,
+        "monthly_now": round(now_total),
+        "monthly_cheapest": round(best_total),
+        "yearly_saving": round((now_total - best_total) * 12),
+    }

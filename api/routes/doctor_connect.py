@@ -1,4 +1,5 @@
 """Doctor connect: time-limited links, doctor view, messages."""
+
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,13 +7,13 @@ from pydantic import BaseModel
 
 import doctor as doctor_mod
 import vault
-
 from core import conn, current_account, now, rows, signed_in_account
 
 router = APIRouter()
 
 
 # ---- doctor connect ----
+
 
 class LinkIn(BaseModel):
     member: str = "Me"
@@ -39,12 +40,18 @@ def _doctor_link(token: str) -> dict:
     return lk
 
 
-def _messages(token: str | None = None, dev: str | None = None, member: str | None = None, since: int = 0) -> list[dict]:
+def _messages(
+    token: str | None = None, dev: str | None = None, member: str | None = None, since: int = 0
+) -> list[dict]:
     if token:
         out = rows("SELECT * FROM doctor_messages WHERE token = ? AND id > ? ORDER BY id", (token, since))
     else:
-        out = rows("SELECT * FROM doctor_messages WHERE device = ?" + (" AND member = ?" if member else "") + " ORDER BY id DESC LIMIT 50",
-                   (dev, member) if member else (dev,))
+        out = rows(
+            "SELECT * FROM doctor_messages WHERE device = ?"
+            + (" AND member = ?" if member else "")
+            + " ORDER BY id DESC LIMIT 50",
+            (dev, member) if member else (dev,),
+        )
     return [vault.open_row("doctor_messages", m) for m in out]
 
 
@@ -57,8 +64,11 @@ def doctor_link_add(b: LinkIn, account: str = Depends(signed_in_account)):
 
 @router.get("/api/doctor/links")
 def doctor_links(account: str = Depends(current_account)):
-    links = rows("""SELECT token, member, doctor, created_at, expires_at, last_seen FROM doctor_links
-                    WHERE device = ? AND revoked = 0 AND expires_at > ? ORDER BY created_at DESC""", (account, now()))
+    links = rows(
+        """SELECT token, member, doctor, created_at, expires_at, last_seen FROM doctor_links
+                    WHERE device = ? AND revoked = 0 AND expires_at > ? ORDER BY created_at DESC""",
+        (account, now()),
+    )
     return [{**lk, "room": doctor_mod.room(lk["token"])} for lk in links]
 
 
@@ -73,7 +83,6 @@ def doctor_link_revoke(token: str, account: str = Depends(current_account)):
 def doctor_view(token: str):
     """The doctor's console: who, latest vitals, NEWS2, 24 h live stats, medicines, adherence, SOS, messages."""
     import care
-    import sos
 
     lk = _doctor_link(token)
     dev, member = lk["device"], lk["member"]
@@ -82,13 +91,24 @@ def doctor_view(token: str):
     cur = doctor_mod.latest(conn, dev, member)
     report = care_report(member, account=dev)
     return {
-        "member": member, "doctor": lk["doctor"], "expires_at": lk["expires_at"], "room": doctor_mod.room(token),
+        "member": member,
+        "doctor": lk["doctor"],
+        "expires_at": lk["expires_at"],
+        "room": doctor_mod.room(token),
         "latest": cur,
         "assessment": care.assess(cur["temp_c"], cur["bp_sys"], cur["bp_dia"], cur["pulse"], cur["spo2"]),
         "news2": doctor_mod.news2(cur["temp_c"], cur["bp_sys"], cur["pulse"], cur["spo2"]),
         "stats_24h": doctor_mod.live_stats(conn, dev, member),
-        "vitals": report["vitals"], "plans": report["plans"], "adherence": report["adherence"],
-        "sos": rows("SELECT id, lat, lng, at, resolved_at FROM sos_events WHERE device = ? AND member = ? ORDER BY at DESC LIMIT 5", (dev, member)),
+        "vitals": report["vitals"],
+        "plans": report["plans"],
+        "adherence": report["adherence"],
+        "sos": rows(
+            (
+                "SELECT id, lat, lng, at, resolved_at FROM sos_events "
+                "WHERE device = ? AND member = ? ORDER BY at DESC LIMIT 5"
+            ),
+            (dev, member),
+        ),
         "messages": _messages(token),
     }
 
@@ -98,15 +118,27 @@ def doctor_live(token: str, since: int = 0, msg_since: int = 0):
     """Polled every 2 s by the console: new live samples and new messages."""
     lk = _doctor_link(token)
     dev, member = lk["device"], lk["member"]
-    samples = rows("SELECT id, at, pulse, spo2, source FROM vitals_live WHERE device = ? AND member = ? AND id > ? ORDER BY id DESC LIMIT 300",
-                   (dev, member, since))[::-1]
-    last = conn.execute("SELECT at, source FROM vitals_live WHERE device = ? AND member = ? ORDER BY id DESC LIMIT 1", (dev, member)).fetchone()
+    samples = rows(
+        (
+            "SELECT id, at, pulse, spo2, source FROM vitals_live WHERE "
+            "device = ? AND member = ? AND id > ? ORDER BY id DESC LIMIT 300"
+        ),
+        (dev, member, since),
+    )[::-1]
+    last = conn.execute(
+        "SELECT at, source FROM vitals_live WHERE device = ? AND member = ? ORDER BY id DESC LIMIT 1", (dev, member)
+    ).fetchone()
     cur = doctor_mod.latest(conn, dev, member)
     conn.execute("UPDATE doctor_links SET last_seen = ? WHERE token = ?", (now(), token))
     conn.commit()
-    return {"samples": samples, "online": bool(last) and last["at"] >= _ago(15), "source": last["source"] if last else None,
-            "latest": cur, "news2": doctor_mod.news2(cur["temp_c"], cur["bp_sys"], cur["pulse"], cur["spo2"]),
-            "messages": _messages(token, since=msg_since)}
+    return {
+        "samples": samples,
+        "online": bool(last) and last["at"] >= _ago(15),
+        "source": last["source"] if last else None,
+        "latest": cur,
+        "news2": doctor_mod.news2(cur["temp_c"], cur["bp_sys"], cur["pulse"], cur["spo2"]),
+        "messages": _messages(token, since=msg_since),
+    }
 
 
 @router.get("/api/doctor/{token}/interactions")
@@ -123,16 +155,20 @@ def doctor_message(token: str, b: MessageIn):
         raise HTTPException(400, "Write a message of up to 1000 characters")
     if b.doctor and not lk["doctor"]:
         conn.execute("UPDATE doctor_links SET doctor = ? WHERE token = ?", (b.doctor.strip()[:80], token))
-    cur = conn.execute("INSERT INTO doctor_messages (token, device, member, author, kind, text, at) VALUES (?,?,?,?,?,?,?)",
-                       (token, lk["device"], lk["member"], "doctor", b.kind, vault.seal(text, "doctor_messages", "text"), now()))
+    cur = conn.execute(
+        "INSERT INTO doctor_messages (token, device, member, author, kind, text, at) VALUES (?,?,?,?,?,?,?)",
+        (token, lk["device"], lk["member"], "doctor", b.kind, vault.seal(text, "doctor_messages", "text"), now()),
+    )
     added_to_plan = False
     if b.kind == "advice":
-        p = conn.execute("SELECT id, advice FROM plans WHERE device = ? AND member = ? ORDER BY id DESC LIMIT 1",
-                         (lk["device"], lk["member"])).fetchone()
+        p = conn.execute(
+            "SELECT id, advice FROM plans WHERE device = ? AND member = ? ORDER BY id DESC LIMIT 1",
+            (lk["device"], lk["member"]),
+        ).fetchone()
         if p:
             advice = json.loads(p["advice"] or "[]")
             if text not in advice:
-                conn.execute("UPDATE plans SET advice = ? WHERE id = ?", (json.dumps(advice + [text]), p["id"]))
+                conn.execute("UPDATE plans SET advice = ? WHERE id = ?", (json.dumps([*advice, text]), p["id"]))
             added_to_plan = True
     conn.commit()
     return {"id": cur.lastrowid, "added_to_plan": added_to_plan}
@@ -153,16 +189,20 @@ def care_message_send(b: PatientMessageIn, account: str = Depends(current_accoun
         raise HTTPException(404, "Doctor link not found")
     if b.kind not in ("note", "call") or not 0 < len(text) <= 1000:
         raise HTTPException(400, "Write a message of up to 1000 characters")
-    cur = conn.execute("INSERT INTO doctor_messages (token, device, member, author, kind, text, at) VALUES (?,?,?,?,?,?,?)",
-                       (b.token, dev, lk["member"], "patient", b.kind, vault.seal(text, "doctor_messages", "text"), now()))
+    cur = conn.execute(
+        "INSERT INTO doctor_messages (token, device, member, author, kind, text, at) VALUES (?,?,?,?,?,?,?)",
+        (b.token, dev, lk["member"], "patient", b.kind, vault.seal(text, "doctor_messages", "text"), now()),
+    )
     conn.commit()
     return {"id": cur.lastrowid}
 
 
 @router.post("/api/care/messages/read")
 def care_messages_read(account: str = Depends(current_account)):
-    conn.execute("UPDATE doctor_messages SET read_at = ? WHERE device = ? AND author = 'doctor' AND read_at IS NULL",
-                 (now(), account))
+    conn.execute(
+        "UPDATE doctor_messages SET read_at = ? WHERE device = ? AND author = 'doctor' AND read_at IS NULL",
+        (now(), account),
+    )
     conn.commit()
     return {"ok": True}
 

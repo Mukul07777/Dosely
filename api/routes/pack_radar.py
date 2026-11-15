@@ -1,4 +1,5 @@
 """Fake-pack radar: every QR scan is a sensor."""
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -8,6 +9,7 @@ router = APIRouter()
 
 
 # ---- fake-pack radar: every QR scan is a sensor ----
+
 
 class PackScanIn(BaseModel):
     serial: str
@@ -28,8 +30,16 @@ def packs_scan(b: PackScanIn, account: str = Depends(current_account)):
         raise HTTPException(400, "This code has no pack serial")
     if (b.lat is None) != (b.lng is None) or (b.lat is not None and not (-90 <= b.lat <= 90 and -180 <= b.lng <= 180)):
         raise HTTPException(400, "Bad location")
-    return packs.record(conn, account, serial, (b.gtin or "").strip()[:20] or None,
-                        (b.batch or "").strip()[:32] or None, (b.expiry or "").strip()[:10] or None, b.lat, b.lng)
+    return packs.record(
+        conn,
+        account,
+        serial,
+        (b.gtin or "").strip()[:20] or None,
+        (b.batch or "").strip()[:32] or None,
+        (b.expiry or "").strip()[:10] or None,
+        b.lat,
+        b.lng,
+    )
 
 
 @router.get("/api/packs/radar")

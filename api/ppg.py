@@ -1,6 +1,8 @@
 """Pulse from a PPG waveform: the same steps as the phone-camera reader in web/lib/live.ts
 (estimatePulse), kept in Python so it can be scored against real ICU monitor data (BIDMC)."""
 
+import itertools
+
 
 def estimate(t_ms: list[float], raw: list[float]) -> int | None:
     """`raw` is camera-style brightness (darker = more blood). Returns bpm, or None if the window is too noisy."""
@@ -19,9 +21,16 @@ def estimate(t_ms: list[float], raw: list[float]) -> int | None:
     peaks: list[float] = []
     for i in range(2, len(sig) - 2):
         v = sig[i]
-        if v > floor and v >= sig[i - 1] and v >= sig[i - 2] and v > sig[i + 1] and v > sig[i + 2] and (not peaks or t_ms[i] - peaks[-1] > 330):
+        if (
+            v > floor
+            and v >= sig[i - 1]
+            and v >= sig[i - 2]
+            and v > sig[i + 1]
+            and v > sig[i + 2]
+            and (not peaks or t_ms[i] - peaks[-1] > 330)
+        ):
             peaks.append(t_ms[i])
-    iv = sorted(b - a for a, b in zip(peaks, peaks[1:]))
+    iv = sorted(b - a for a, b in itertools.pairwise(peaks))
     if len(iv) < 5:
         return None
     med = iv[len(iv) // 2]

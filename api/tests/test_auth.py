@@ -4,11 +4,11 @@ from pathlib import Path
 
 os.environ.setdefault("KINCARE_DB", str(Path(tempfile.mkdtemp()) / "test.db"))
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-import main  # noqa: E402
-import sessions  # noqa: E402
-from testutil import auth_as  # noqa: E402
+import main
+import sessions
+from testutil import auth_as
 
 client = TestClient(main.app)
 c = main.conn
@@ -16,7 +16,9 @@ c = main.conn
 
 def login(device: str, phone: str) -> dict:
     h = auth_as(device)
-    code = client.post("/api/auth/start", headers=h, json={"phone": phone}).json()["demo_code"]  # no WhatsApp in tests: demo mode
+    code = client.post("/api/auth/start", headers=h, json={"phone": phone}).json()[
+        "demo_code"
+    ]  # no WhatsApp in tests: demo mode
     return client.post("/api/auth/verify", headers=h, json={"phone": phone, "code": code}).json()
 
 
@@ -37,8 +39,8 @@ def test_first_login_keeps_this_phones_data_and_second_phone_joins_the_account()
     a.post("/api/watchlist", json={"batch": "AUTHB1", "brand": "X"})
     r = a.post("/api/auth/verify", json={"phone": "98111 22233", "code": code_for(a, "98111 22233")}).json()
     assert r["signed_in"] and r["new"] and "device" not in r  # the account id never leaves the server
-    assert a.cookies.get(sessions.COOKIE) != guest_cookie       # new session after login (no session fixation)
-    assert sessions.resolve(main.conn, guest_cookie) is None    # the guest token is dead
+    assert a.cookies.get(sessions.COOKIE) != guest_cookie  # new session after login (no session fixation)
+    assert sessions.resolve(main.conn, guest_cookie) is None  # the guest token is dead
 
     # Second phone already had its own watchlist item and a vitals reading: both merge into the account.
     b.post("/api/watchlist", json={"batch": "AUTHB2", "brand": "Y"})

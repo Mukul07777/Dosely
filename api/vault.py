@@ -4,9 +4,11 @@ AES-256-GCM, a fresh 96-bit nonce per value, and the table + column as associate
 another column does not decrypt. Stored as "enc1:<base64url(nonce || ciphertext)>"; rows written before encryption
 existed are read as plain text and encrypted once at startup (migrate).
 
-Key: KINCARE_DATA_KEY (base64url of 32 bytes, or any long secret string; set it on the server and keep it out of the database backups), else a key
+Key: KINCARE_DATA_KEY (base64url of 32 bytes, or any long secret string; set it on the server and keep it out of the
+database backups), else a key
 generated once into data/data.key next to the database (file mode 600). Losing the key loses these fields.
 """
+
 import base64
 import hashlib
 import os
@@ -60,7 +62,7 @@ def seal(value: str | None, table: str, column: str) -> str | None:
 def open_(value: str | None, table: str, column: str) -> str | None:
     if not isinstance(value, str) or not value.startswith(PREFIX):
         return value  # plain text from before encryption, or NULL
-    blob = base64.urlsafe_b64decode(value[len(PREFIX):])
+    blob = base64.urlsafe_b64decode(value[len(PREFIX) :])
     return _key().decrypt(blob[:12], blob[12:], f"{table}.{column}".encode()).decode()
 
 
@@ -78,7 +80,9 @@ def migrate(conn: sqlite3.Connection) -> int:
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (table,)).fetchone():
             continue
         for col in cols:
-            for rid, v in conn.execute(f"SELECT id, {col} FROM {table} WHERE {col} IS NOT NULL AND {col} NOT LIKE ?", (PREFIX + "%",)).fetchall():
+            for rid, v in conn.execute(
+                f"SELECT id, {col} FROM {table} WHERE {col} IS NOT NULL AND {col} NOT LIKE ?", (PREFIX + "%",)
+            ).fetchall():
                 conn.execute(f"UPDATE {table} SET {col} = ? WHERE id = ?", (seal(v, table, col), rid))
                 n += 1
     conn.commit()

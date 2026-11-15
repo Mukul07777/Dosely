@@ -1,5 +1,6 @@
 """Shared test setup. The suite runs as the laptop demo does (KINCARE_DEMO=1, an admin token); test_security.py checks
 that without them login codes, unsigned webhooks and admin stay closed."""
+
 import os
 
 import pytest

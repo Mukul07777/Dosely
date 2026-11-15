@@ -3,6 +3,7 @@
 For every pair (A, B) we read the "Drug Interactions" / "Warnings" sections of A's
 official US label and look for B's generic name. Shown as "ask your doctor", never advice.
 """
+
 import json
 import re
 import sqlite3
@@ -13,15 +14,43 @@ FDA = "https://api.fda.gov/drug/label.json"
 
 # Common Indian brands -> generic (US label names where they differ).
 BRANDS = {
-    "crocin": "acetaminophen", "dolo": "acetaminophen", "calpol": "acetaminophen", "paracetamol": "acetaminophen",
-    "combiflam": "ibuprofen", "brufen": "ibuprofen", "disprin": "aspirin", "ecosprin": "aspirin",
-    "pan": "pantoprazole", "pantocid": "pantoprazole", "omez": "omeprazole", "rantac": "ranitidine",
-    "glycomet": "metformin", "amaryl": "glimepiride", "telma": "telmisartan", "amlong": "amlodipine", "stamlo": "amlodipine",
-    "atorva": "atorvastatin", "storvas": "atorvastatin", "rosuvas": "rosuvastatin", "clopilet": "clopidogrel",
-    "augmentin": "amoxicillin", "mox": "amoxicillin", "azithral": "azithromycin", "azee": "azithromycin",
-    "cifran": "ciprofloxacin", "ciplox": "ciprofloxacin", "allegra": "fexofenadine", "cetzine": "cetirizine",
-    "montair": "montelukast", "thyronorm": "levothyroxine", "eltroxin": "levothyroxine", "warf": "warfarin",
-    "ativan": "lorazepam", "alprax": "alprazolam", "nexito": "escitalopram", "shelcal": "calcium carbonate",
+    "crocin": "acetaminophen",
+    "dolo": "acetaminophen",
+    "calpol": "acetaminophen",
+    "paracetamol": "acetaminophen",
+    "combiflam": "ibuprofen",
+    "brufen": "ibuprofen",
+    "disprin": "aspirin",
+    "ecosprin": "aspirin",
+    "pan": "pantoprazole",
+    "pantocid": "pantoprazole",
+    "omez": "omeprazole",
+    "rantac": "ranitidine",
+    "glycomet": "metformin",
+    "amaryl": "glimepiride",
+    "telma": "telmisartan",
+    "amlong": "amlodipine",
+    "stamlo": "amlodipine",
+    "atorva": "atorvastatin",
+    "storvas": "atorvastatin",
+    "rosuvas": "rosuvastatin",
+    "clopilet": "clopidogrel",
+    "augmentin": "amoxicillin",
+    "mox": "amoxicillin",
+    "azithral": "azithromycin",
+    "azee": "azithromycin",
+    "cifran": "ciprofloxacin",
+    "ciplox": "ciprofloxacin",
+    "allegra": "fexofenadine",
+    "cetzine": "cetirizine",
+    "montair": "montelukast",
+    "thyronorm": "levothyroxine",
+    "eltroxin": "levothyroxine",
+    "warf": "warfarin",
+    "ativan": "lorazepam",
+    "alprax": "alprazolam",
+    "nexito": "escitalopram",
+    "shelcal": "calcium carbonate",
 }
 SECTIONS = ("drug_interactions", "warnings", "boxed_warning", "precautions")
 
@@ -54,7 +83,7 @@ def _snippet(text: str, term: str) -> str:
     i = text.lower().find(term)
     start = max(0, text.rfind(".", 0, i) + 1)
     end = text.find(".", i)
-    return text[start: end + 1 if end != -1 else i + 200].strip()[:320]
+    return text[start : end + 1 if end != -1 else i + 200].strip()[:320]
 
 
 def check(conn: sqlite3.Connection, names: list[str]) -> dict:
@@ -71,9 +100,15 @@ def check(conn: sqlite3.Connection, names: list[str]) -> dict:
             for sec in SECTIONS:
                 text = lab.get(sec, "")
                 if re.search(rf"\b{re.escape(b['generic'])}\b", text, re.I):
-                    found.append({"a": a["name"], "b": b["name"], "section": sec.replace("_", " "),
-                                  "severity": "high" if sec == "boxed_warning" else "check",
-                                  "evidence": _snippet(text, b["generic"])})
+                    found.append(
+                        {
+                            "a": a["name"],
+                            "b": b["name"],
+                            "section": sec.replace("_", " "),
+                            "severity": "high" if sec == "boxed_warning" else "check",
+                            "evidence": _snippet(text, b["generic"]),
+                        }
+                    )
                     break
     # Keep one entry per pair.
     seen, out = set(), []

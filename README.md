@@ -150,7 +150,8 @@ Keys go in Secret Manager, never in the image. Full steps: [docs/setup/CLOUD_RUN
 ## Testing
 
 ```bash
-cd api && .venv/Scripts/python -m pytest        # 240 tests: care circle rules, security, reminders, matching
+cd api && ruff check . && ruff format --check .   # lint and formatting, zero findings (config: api/pyproject.toml)
+cd api && .venv/Scripts/python -m pytest        # 238 tests: care circle rules, security, reminders, matching
 cd web && npm test && npx tsc --noEmit && npx eslint .   # 16 tests: display rules, passcode token handling
 ```
 

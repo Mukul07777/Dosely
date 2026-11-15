@@ -10,10 +10,11 @@ account (auth.merge) and replaces the guest session with a signed-in one.
 
 Lifetimes: guest sessions 90 days, signed-in sessions 30 days, both sliding (extended while in use), revocable any time.
 """
+
 import hashlib
 import secrets
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 COOKIE = "kincare_session"
 LIFETIME = {"guest": timedelta(days=90), "user": timedelta(days=30)}
@@ -36,7 +37,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account);
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _hash(token: str) -> str:
@@ -49,8 +50,29 @@ def new_account_id() -> str:
 
 def label_of(user_agent: str | None) -> str:
     ua = (user_agent or "").lower()
-    browser = next((b for k, b in (("edg/", "Edge"), ("chrome", "Chrome"), ("firefox", "Firefox"), ("safari", "Safari")) if k in ua), "Browser")
-    os_ = next((o for k, o in (("android", "Android"), ("iphone", "iPhone"), ("ipad", "iPad"), ("windows", "Windows"), ("mac os", "Mac"), ("linux", "Linux")) if k in ua), "")
+    browser = next(
+        (
+            b
+            for k, b in (("edg/", "Edge"), ("chrome", "Chrome"), ("firefox", "Firefox"), ("safari", "Safari"))
+            if k in ua
+        ),
+        "Browser",
+    )
+    os_ = next(
+        (
+            o
+            for k, o in (
+                ("android", "Android"),
+                ("iphone", "iPhone"),
+                ("ipad", "iPad"),
+                ("windows", "Windows"),
+                ("mac os", "Mac"),
+                ("linux", "Linux"),
+            )
+            if k in ua
+        ),
+        "",
+    )
     return f"{browser} on {os_}" if os_ else browser
 
 
@@ -58,9 +80,22 @@ def create(conn: sqlite3.Connection, account: str, kind: str = "guest", user_age
     """A new session for this account. Returns the token (shown once, to be put in the cookie)."""
     token = secrets.token_urlsafe(32)  # 256 bits
     now = _now()
-    conn.execute("INSERT INTO sessions (id, token_hash, account, kind, label, created_at, last_seen, expires_at) VALUES (?,?,?,?,?,?,?,?)",
-                 ("ses_" + secrets.token_hex(8), _hash(token), account, kind, label_of(user_agent), now.isoformat(), now.isoformat(),
-                  (now + LIFETIME[kind]).isoformat()))
+    conn.execute(
+        (
+            "INSERT INTO sessions (id, token_hash, account, kind, label, "
+            "created_at, last_seen, expires_at) VALUES (?,?,?,?,?,?,?,?)"
+        ),
+        (
+            "ses_" + secrets.token_hex(8),
+            _hash(token),
+            account,
+            kind,
+            label_of(user_agent),
+            now.isoformat(),
+            now.isoformat(),
+            (now + LIFETIME[kind]).isoformat(),
+        ),
+    )
     conn.commit()
     return token
 
@@ -76,33 +111,50 @@ def resolve(conn: sqlite3.Connection, token: str | None) -> dict | None:
     if datetime.fromisoformat(r["expires_at"]) < now:
         return None
     if now - datetime.fromisoformat(r["last_seen"]) > TOUCH_EVERY:  # sliding expiry
-        conn.execute("UPDATE sessions SET last_seen = ?, expires_at = ? WHERE id = ?",
-                     (now.isoformat(), (now + LIFETIME[r["kind"]]).isoformat(), r["id"]))
+        conn.execute(
+            "UPDATE sessions SET last_seen = ?, expires_at = ? WHERE id = ?",
+            (now.isoformat(), (now + LIFETIME[r["kind"]]).isoformat(), r["id"]),
+        )
         conn.commit()
     return dict(r)
 
 
 def revoke(conn: sqlite3.Connection, token: str) -> None:
-    conn.execute("UPDATE sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL", (_now().isoformat(), _hash(token)))
+    conn.execute(
+        "UPDATE sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
+        (_now().isoformat(), _hash(token)),
+    )
     conn.commit()
 
 
 def revoke_id(conn: sqlite3.Connection, account: str, sid: str) -> bool:
-    n = conn.execute("UPDATE sessions SET revoked_at = ? WHERE id = ? AND account = ? AND revoked_at IS NULL", (_now().isoformat(), sid, account)).rowcount
+    n = conn.execute(
+        "UPDATE sessions SET revoked_at = ? WHERE id = ? AND account = ? AND revoked_at IS NULL",
+        (_now().isoformat(), sid, account),
+    ).rowcount
     conn.commit()
     return bool(n)
 
 
 def revoke_all(conn: sqlite3.Connection, account: str, except_token: str | None = None) -> int:
     keep = _hash(except_token) if except_token else ""
-    n = conn.execute("UPDATE sessions SET revoked_at = ? WHERE account = ? AND revoked_at IS NULL AND token_hash != ?",
-                     (_now().isoformat(), account, keep)).rowcount
+    n = conn.execute(
+        "UPDATE sessions SET revoked_at = ? WHERE account = ? AND revoked_at IS NULL AND token_hash != ?",
+        (_now().isoformat(), account, keep),
+    ).rowcount
     conn.commit()
     return n
 
 
 def active(conn: sqlite3.Connection, account: str, current_token: str | None = None) -> list[dict]:
     cur = _hash(current_token) if current_token else ""
-    rows = conn.execute("SELECT id, kind, label, created_at, last_seen, token_hash FROM sessions WHERE account = ? AND revoked_at IS NULL AND expires_at > ? "
-                        "ORDER BY last_seen DESC", (account, _now().isoformat())).fetchall()
-    return [{k: r[k] for k in ("id", "kind", "label", "created_at", "last_seen")} | {"current": r["token_hash"] == cur} for r in rows]
+    rows = conn.execute(
+        "SELECT id, kind, label, created_at, last_seen, token_hash FROM "
+        "sessions WHERE account = ? AND revoked_at IS NULL AND expires_at > ? "
+        "ORDER BY last_seen DESC",
+        (account, _now().isoformat()),
+    ).fetchall()
+    return [
+        {k: r[k] for k in ("id", "kind", "label", "created_at", "last_seen")} | {"current": r["token_hash"] == cur}
+        for r in rows
+    ]

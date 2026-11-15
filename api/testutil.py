@@ -1,4 +1,5 @@
 """Test helper: a real server-issued session for an account id, sent as a Bearer token (the way an API client would)."""
+
 import main
 import roles as roles_mod
 import sessions
@@ -15,5 +16,6 @@ def auth_as(account: str, kind: str = "user", roles: tuple[str, ...] = ()) -> di
     key = (account, kind)
     if key not in _tokens:
         _tokens[key] = sessions.create(main.conn, account, kind)
-    # X-Device-Id is ignored by the server now (a test proves it); it stays only so a test can read which account it acts as.
+    # X-Device-Id is ignored by the server now (a test proves it); it stays only so a test can read which account it
+    # acts as.
     return {"Authorization": f"Bearer {_tokens[key]}", "X-Device-Id": account}

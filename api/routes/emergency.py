@@ -1,4 +1,5 @@
 """SOS: emergency contacts, medical card, one-tap alert."""
+
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -37,8 +38,10 @@ def sos_contact_add(c: ContactIn, account: str = Depends(current_account)):
         raise HTTPException(400, "Enter a phone number like +91 98xxxxxxxx")
     if conn.execute("SELECT COUNT(*) FROM contacts WHERE device = ?", (dev,)).fetchone()[0] >= 5:
         raise HTTPException(400, "Up to 5 emergency contacts")
-    conn.execute("INSERT INTO contacts (device, name, phone, relation) VALUES (?, ?, ?, ?)",
-                 (dev, c.name.strip()[:40] or "Contact", phone, (c.relation or "").strip()[:20] or None))
+    conn.execute(
+        "INSERT INTO contacts (device, name, phone, relation) VALUES (?, ?, ?, ?)",
+        (dev, c.name.strip()[:40] or "Contact", phone, (c.relation or "").strip()[:20] or None),
+    )
     conn.commit()
     return {"ok": True}
 
@@ -68,8 +71,10 @@ def sos_trigger(b: SosIn, account: str = Depends(current_account)):
     deliveries = sos.deliver(contacts, text)
     for name in tell_caregivers(dev, b.member, "sos", f"🚨 SOS from {b.member}", text, "sos"):
         deliveries.append({"name": name, "phone": "Dosely caregiver", "status": "caregiver", "link": None})
-    cur = conn.execute("INSERT INTO sos_events (device, member, lat, lng, message, delivered) VALUES (?, ?, ?, ?, ?, ?)",
-                       (dev, b.member, b.lat, b.lng, text, sum(d["status"] == "sent" for d in deliveries)))
+    cur = conn.execute(
+        "INSERT INTO sos_events (device, member, lat, lng, message, delivered) VALUES (?, ?, ?, ?, ?, ?)",
+        (dev, b.member, b.lat, b.lng, text, sum(d["status"] == "sent" for d in deliveries)),
+    )
     conn.commit()
     return {"id": cur.lastrowid, "message": text, "deliveries": deliveries}
 

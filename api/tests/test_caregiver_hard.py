@@ -1,4 +1,5 @@
 """Edge cases for Dadi chat, caregivers and Telegram: wrong words, wrong people, wrong times."""
+
 import os
 import tempfile
 from datetime import datetime, timedelta
@@ -6,14 +7,14 @@ from pathlib import Path
 
 os.environ.setdefault("KINCARE_DB", str(Path(tempfile.mkdtemp()) / "test.db"))
 
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+import pytest
+from fastapi.testclient import TestClient
 
-import auth  # noqa: E402
-import caregiver  # noqa: E402
-import main  # noqa: E402
-from testutil import auth_as  # noqa: E402
-import voice  # noqa: E402
+import auth
+import caregiver
+import main
+import voice
+from testutil import auth_as
 
 client = TestClient(main.app)
 
@@ -30,25 +31,40 @@ def plan(dev, member="Papa", start=None, **slots):
 
 
 def mine(dev, at):
-    return [d for l, d in caregiver.missed_doses(main.conn, at) if l["elder_device"] == dev]
+    return [d for link, d in caregiver.missed_doses(main.conn, at) if link["elder_device"] == dev]
 
 
 def link(elder, cg, member="Papa", scopes=("doses", "vitals", "sos"), name="Rahul"):
-    code = client.post("/api/caregiver/invite", headers=H(elder), json={"member": member, "elder_name": "Ramesh", "scopes": list(scopes)}).json()["code"]
+    code = client.post(
+        "/api/caregiver/invite",
+        headers=H(elder),
+        json={"member": member, "elder_name": "Ramesh", "scopes": list(scopes)},
+    ).json()["code"]
     r = client.post("/api/caregiver/accept", headers=H(cg), json={"code": code, "name": name, "relation": "son"})
     assert r.status_code == 200, r.text
     return r.json()["link_id"]
 
 
 # ---- the words: no action from a sentence that doesn't mean it ----
-@pytest.mark.parametrize("text", [
-    "dawa le lijiye", "दवा ले लीजिए", "kya maine dawa le li", "abandoned", "kab leni hai", "goli lena hai kya", "मैंने दवा ले ली?",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "dawa le lijiye",
+        "दवा ले लीजिए",
+        "kya maine dawa le li",
+        "abandoned",
+        "kab leni hai",
+        "goli lena hai kya",
+        "मैंने दवा ले ली?",
+    ],
+)
 def test_not_taken(text):
     assert not voice.is_taken(text), text
 
 
-@pytest.mark.parametrize("text", ["maine dawa le li", "dawa le li", "मैंने दवा ले ली", "ले ली", "I took my medicine", "taken", "kha li"])
+@pytest.mark.parametrize(
+    "text", ["maine dawa le li", "dawa le li", "मैंने दवा ले ली", "ले ली", "I took my medicine", "taken", "kha li"]
+)
 def test_taken(text):
     assert voice.is_taken(text), text
 
@@ -58,16 +74,27 @@ def test_not_family(text):
     assert not voice.is_family(text), text
 
 
-@pytest.mark.parametrize("text", ["beta ko bulao", "बेटे को बुलाओ", "call my family", "बेटी से बात करनी है", "parivar ko batao"])
+@pytest.mark.parametrize(
+    "text", ["beta ko bulao", "बेटे को बुलाओ", "call my family", "बेटी से बात करनी है", "parivar ko batao"]
+)
 def test_family(text):
     assert voice.is_family(text), text
 
 
-@pytest.mark.parametrize("text,want", [
-    ("Dolo 650 kitne ki hai", {}), ("telma 40 kis liye", {}), ("batch AT25-0938A", {}), ("BP ki dawa", {}),
-    ("BP 120", {}), ("bp 120/80", {"bp_sys": 120, "bp_dia": 80}), ("temperature 98.6", {"temp_c": 37.0}),
-    ("oxygen 95 pulse 88", {"spo2": 95, "pulse": 88}), ("मेरा बीपी 150/95 है", {"bp_sys": 150, "bp_dia": 95}),
-])
+@pytest.mark.parametrize(
+    "text,want",
+    [
+        ("Dolo 650 kitne ki hai", {}),
+        ("telma 40 kis liye", {}),
+        ("batch AT25-0938A", {}),
+        ("BP ki dawa", {}),
+        ("BP 120", {}),
+        ("bp 120/80", {"bp_sys": 120, "bp_dia": 80}),
+        ("temperature 98.6", {"temp_c": 37.0}),
+        ("oxygen 95 pulse 88", {"spo2": 95, "pulse": 88}),
+        ("मेरा बीपी 150/95 है", {"bp_sys": 150, "bp_dia": 95}),
+    ],
+)
 def test_vitals_parsing(text, want):
     assert voice.vitals_in(text) == want
 
@@ -113,16 +140,18 @@ def test_missed_after_an_hour_not_before():
     plan(dev)
     link(dev, "h-hour-cg")
     day = datetime.now()
-    assert not mine(dev, day.replace(hour=8, minute=59))   # 08:00 dose, 59 min late
+    assert not mine(dev, day.replace(hour=8, minute=59))  # 08:00 dose, 59 min late
     assert [d["slot"] for d in mine(dev, day.replace(hour=9, minute=1))] == ["morning"]
-    assert not mine(dev, day.replace(hour=9, minute=2))   # once
+    assert not mine(dev, day.replace(hour=9, minute=2))  # once
 
 
 def test_taken_dose_is_never_reported_missed():
     dev = "h-taken"
     plan(dev)
     link(dev, "h-taken-cg")
-    mid = main.conn.execute("SELECT m.id FROM plan_meds m JOIN plans p ON p.id = m.plan_id WHERE p.device = ?", (dev,)).fetchone()[0]
+    mid = main.conn.execute(
+        "SELECT m.id FROM plan_meds m JOIN plans p ON p.id = m.plan_id WHERE p.device = ?", (dev,)
+    ).fetchone()[0]
     client.post("/api/care/doses", headers=H(dev), json={"med_id": mid, "slot": "morning"})
     assert not mine(dev, datetime.now().replace(hour=10, minute=0))
 
@@ -131,7 +160,11 @@ def test_course_finished_and_as_needed_meds_never_count():
     dev = "h-course"
     old = (datetime.now().date() - timedelta(days=20)).isoformat()
     plan(dev, start=old, days=5)
-    client.post("/api/care/plans", headers=H(dev), json={"member": "Papa", "medicines": [{"name": "Dolo", "as_needed": True, "morning": 1}]})
+    client.post(
+        "/api/care/plans",
+        headers=H(dev),
+        json={"member": "Papa", "medicines": [{"name": "Dolo", "as_needed": True, "morning": 1}]},
+    )
     lid = link(dev, "h-course-cg")
     d = client.get(f"/api/caregiver/elder/{lid}", headers=H("h-course-cg")).json()
     assert d["doses"]["today"] == [] and d["doses"]["adherence"] is None
@@ -155,7 +188,10 @@ def test_other_family_members_stay_private():
     plan(dev, member="Papa")
     plan(dev, member="Maa")
     lid = link(dev, "h-member-cg", member="Papa")
-    names = {m["name"] for m in client.get(f"/api/caregiver/elder/{lid}", headers=H("h-member-cg")).json()["doses"]["medicines"]}
+    names = {
+        m["name"]
+        for m in client.get(f"/api/caregiver/elder/{lid}", headers=H("h-member-cg")).json()["doses"]["medicines"]
+    }
     assert names == {"Telma 40"}
     client.post("/api/care/vitals", headers=H(dev), json={"member": "Maa", "bp_sys": 200, "bp_dia": 130})
     v = client.get(f"/api/caregiver/elder/{lid}", headers=H("h-member-cg")).json()["vitals"]
@@ -166,14 +202,26 @@ def test_unknown_scopes_ignored_and_bad_codes_rejected():
     r = client.post("/api/caregiver/invite", headers=H("h-x"), json={"scopes": ["everything", "doses", "doses"]}).json()
     assert r["scopes"] == ["doses"]
     for bad in ("", "ZZZZZZ", "' OR 1=1 --", "a" * 200):
-        assert client.post("/api/caregiver/accept", headers=H("h-y"), json={"code": bad, "name": "X"}).status_code in (400, 404)
-    assert client.post("/api/caregiver/accept", headers=H("h-y"), json={"code": r["code"], "name": "   "}).status_code == 400
+        assert client.post("/api/caregiver/accept", headers=H("h-y"), json={"code": bad, "name": "X"}).status_code in (
+            400,
+            404,
+        )
+    assert (
+        client.post("/api/caregiver/accept", headers=H("h-y"), json={"code": r["code"], "name": "   "}).status_code
+        == 400
+    )
 
 
 def test_expired_code():
     r = client.post("/api/caregiver/invite", headers=H("h-exp"), json={"scopes": ["doses"]}).json()
-    main.conn.execute("UPDATE care_invites SET expires_at = ? WHERE code = ?", ((datetime.now() - timedelta(days=3)).isoformat() + "+00:00", r["code"]))
-    assert client.post("/api/caregiver/accept", headers=H("h-exp-cg"), json={"code": r["code"], "name": "R"}).status_code == 400
+    main.conn.execute(
+        "UPDATE care_invites SET expires_at = ? WHERE code = ?",
+        ((datetime.now() - timedelta(days=3)).isoformat() + "+00:00", r["code"]),
+    )
+    assert (
+        client.post("/api/caregiver/accept", headers=H("h-exp-cg"), json={"code": r["code"], "name": "R"}).status_code
+        == 400
+    )
 
 
 def test_revoked_caregiver_loses_everything():
@@ -202,7 +250,10 @@ def test_two_caregivers_both_alerted_and_nudges_rate_limited():
     a, _ = link(dev, "h-two-a", name="Rahul"), link(dev, "h-two-b", name="Priya")
     r = client.post("/api/dadi/chat", headers=H(dev), json={"text": "beta ko bulao", "member": "Papa"}).json()
     assert sorted(r["data"]["told"]) == ["Priya", "Rahul"]
-    codes = [client.post(f"/api/caregiver/elder/{a}/nudge", headers=H("h-two-a"), json={"text": "hi"}).status_code for _ in range(6)]
+    codes = [
+        client.post(f"/api/caregiver/elder/{a}/nudge", headers=H("h-two-a"), json={"text": "hi"}).status_code
+        for _ in range(6)
+    ]
     assert codes == [200] * 5 + [429]
 
 
@@ -239,7 +290,13 @@ def test_chat_uses_the_member_that_has_a_caregiver():
 
 # ---- Telegram ----
 def test_telegram_ignores_junk_updates():
-    for u in ({}, {"message": {}}, {"message": {"chat": {"id": 1}}}, {"callback_query": {}}, {"message": {"chat": {"id": 1}, "photo": []}}):
+    for u in (
+        {},
+        {"message": {}},
+        {"message": {"chat": {"id": 1}}},
+        {"callback_query": {}},
+        {"message": {"chat": {"id": 1}, "photo": []}},
+    ):
         assert main.telegram_handle(u) is None
     assert "Connect Telegram" in main.telegram_handle({"message": {"chat": {"id": 5}, "text": "/start"}})
     assert "Connect Telegram" in main.telegram_handle({"message": {"chat": {"id": 5}, "text": "/start not-a-code"}})
@@ -256,7 +313,9 @@ def test_telegram_buttons_round_trip():
     main.telegram_handle({"message": {"chat": {"id": 5151}, "text": f"/start {code}"}})
     for b in main.TG_BUTTONS:
         main.telegram_handle({"message": {"chat": {"id": 5151}, "text": b}})
-    kinds = [m["kind"] for m in client.get("/api/dadi/history", headers=H("h-tg-elder")).json() if m["role"] == "kincare"]
+    kinds = [
+        m["kind"] for m in client.get("/api/dadi/history", headers=H("h-tg-elder")).json() if m["role"] == "kincare"
+    ]
     assert kinds == ["nothing_due", "doses", "family_none"]
 
 

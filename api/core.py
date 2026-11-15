@@ -1,9 +1,10 @@
 """Shared by every route module: the database connection, request timings, alert matching, startup hooks."""
+
 import json
 import re
 import threading
 from collections import deque
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request
 
@@ -20,7 +21,8 @@ import telegram
 import vault
 import whatsapp
 from db import ThreadConnection
-from ingest import bidmc, medicines as medicines_ingest
+from ingest import bidmc
+from ingest import medicines as medicines_ingest
 from matcher import match, normalise_batch
 
 SOURCES = [
@@ -44,11 +46,11 @@ conn.executescript(roles.SCHEMA)
 notify_mod.conn = conn
 
 # Last 5,000 request timings, for the /status page's live p50/p95 (no external APM needed at this scale).
-_STARTED = datetime.now(timezone.utc)
+_STARTED = datetime.now(UTC)
 _timings: "deque[tuple[str, float, int]]" = deque(maxlen=5000)
 
 
-_last_now = datetime.min.replace(tzinfo=timezone.utc)
+_last_now = datetime.min.replace(tzinfo=UTC)
 _now_lock = threading.Lock()
 
 
@@ -57,7 +59,7 @@ def now() -> str:
     then a dose ticked) got the same time and "taken after the purchase" became a coin flip."""
     global _last_now
     with _now_lock:
-        t = datetime.now(timezone.utc)
+        t = datetime.now(UTC)
         _last_now = t if t > _last_now else _last_now + timedelta(microseconds=1)
         return _last_now.isoformat()
 
@@ -69,7 +71,9 @@ def rows(sql: str, args=()) -> list[dict]:
 def candidates(batch: str) -> list[dict]:
     from matcher.core import LOOKALIKE_SQL, lookalike
 
-    return rows(f"SELECT * FROM alerts WHERE batch_norm = ? OR {LOOKALIKE_SQL} = ?", (normalise_batch(batch), lookalike(batch)))
+    return rows(
+        f"SELECT * FROM alerts WHERE batch_norm = ? OR {LOOKALIKE_SQL} = ?", (normalise_batch(batch), lookalike(batch))
+    )
 
 
 def run_check(batch: str, maker: str | None, brand: str | None) -> dict:
@@ -88,13 +92,17 @@ def run_check(batch: str, maker: str | None, brand: str | None) -> dict:
 
 
 def _stats_now(one) -> dict:
-    return ({
+    return {
         "total": one("SELECT COUNT(*) FROM alerts"),
         "spurious": one("SELECT COUNT(*) FROM alerts WHERE category = 'spurious'"),
-        "manufacturers": one("SELECT COUNT(DISTINCT manufacturer) FROM alerts WHERE manufacturer NOT LIKE '%investigation%'"),
+        "manufacturers": one(
+            "SELECT COUNT(DISTINCT manufacturer) FROM alerts WHERE manufacturer NOT LIKE '%investigation%'"
+        ),
         "documents": one("SELECT COUNT(*) FROM documents"),
         "coverage": rows("SELECT MIN(alert_month) AS start, MAX(alert_month) AS end FROM alerts")[0],
-        "by_month": rows("SELECT alert_month AS month, COUNT(*) AS n FROM alerts GROUP BY alert_month ORDER BY alert_month"),
+        "by_month": rows(
+            "SELECT alert_month AS month, COUNT(*) AS n FROM alerts GROUP BY alert_month ORDER BY alert_month"
+        ),
         "by_source": rows("SELECT source, COUNT(*) AS n FROM alerts GROUP BY source"),
         "top_manufacturers": rows(
             """SELECT manufacturer, COUNT(*) AS n FROM alerts
@@ -102,14 +110,16 @@ def _stats_now(one) -> dict:
                GROUP BY manufacturer ORDER BY n DESC LIMIT 8"""
         ),
         "last_ingest": one("SELECT MAX(ingested_at) FROM documents"),
-    })
+    }
 
 
 _stats_cache: dict = {}
 _fill = threading.Lock()  # serialises cache fills (stats, datasets, insights) so a cold burst computes each once
 
 
-_GENERIC = re.compile(r"\b(pharma\w*|labs?|laborator\w*|healthcare|life\s?sciences?|remedies|formulations?|drugs?|biotech\w*|medi\w*|industries|india|international)\b")
+_GENERIC = re.compile(
+    r"\b(pharma\w*|labs?|laborator\w*|healthcare|life\s?sciences?|remedies|formulations?|drugs?|biotech\w*|medi\w*|industries|india|international)\b"
+)
 
 
 def _core(normalised: str) -> str:
@@ -129,14 +139,21 @@ def _refresh(trigger: str = "manual"):
     from ingest import fetch, load, portal
 
     count = lambda: conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]  # noqa: E731
-    run = conn.execute("INSERT INTO ingest_runs (trigger, started_at, alerts_before) VALUES (?,?,?)", (trigger, now(), count())).lastrowid
+    run = conn.execute(
+        "INSERT INTO ingest_runs (trigger, started_at, alerts_before) VALUES (?,?,?)", (trigger, now(), count())
+    ).lastrowid
     try:
         fetch.main_for(limit=60)
         load.load()
         portal.load(since=datetime.now().year - 1)
-        conn.execute("UPDATE ingest_runs SET status='ok', finished_at=?, alerts_after=? WHERE id=?", (now(), count(), run))
+        conn.execute(
+            "UPDATE ingest_runs SET status='ok', finished_at=?, alerts_after=? WHERE id=?", (now(), count(), run)
+        )
     except Exception as e:  # logged, not raised: a portal outage must not take the API down
-        conn.execute("UPDATE ingest_runs SET status='failed', finished_at=?, alerts_after=?, error=? WHERE id=?", (now(), count(), str(e)[:300], run))
+        conn.execute(
+            "UPDATE ingest_runs SET status='failed', finished_at=?, alerts_after=?, error=? WHERE id=?",
+            (now(), count(), str(e)[:300], run),
+        )
 
 
 NIGHTLY_HOUR_IST = 2  # CDSCO posts lists during the day; 02:00 IST picks them up before anyone wakes
@@ -160,8 +177,10 @@ def _phone(p: str | None) -> str | None:
 
 
 def _plans(dev: str, member: str | None = None) -> list[dict]:
-    plans = rows("SELECT * FROM plans WHERE device = ?" + (" AND member = ?" if member else "") + " ORDER BY id DESC",
-                 (dev, member) if member else (dev,))
+    plans = rows(
+        "SELECT * FROM plans WHERE device = ?" + (" AND member = ?" if member else "") + " ORDER BY id DESC",
+        (dev, member) if member else (dev,),
+    )
     for p in plans:
         vault.open_row("plans", p)
         p["advice"] = json.loads(p["advice"] or "[]")
@@ -169,21 +188,40 @@ def _plans(dev: str, member: str | None = None) -> list[dict]:
     return plans
 
 
-def alert_device(dev: str, title: str, body: str, url: str = "/care", tag: str | None = None, buttons: list[str] | None = None) -> int:
+def alert_device(
+    dev: str, title: str, body: str, url: str = "/care", tag: str | None = None, buttons: list[str] | None = None
+) -> int:
     """Phone notification + the person's own Telegram chat (both free). Returns how many deliveries went out."""
-    return push.send(conn, dev, title, body, url, tag) + telegram.send_device(conn, dev, f"{title}\n{body}", role="self", buttons=buttons)
+    return push.send(conn, dev, title, body, url, tag) + telegram.send_device(
+        conn, dev, f"{title}\n{body}", role="self", buttons=buttons
+    )
 
 
-def _log_note(channel: str, name: str, phone: str | None, lang: str, batch: str | None, text: str, alert_id=None, urgent: bool = True) -> str:
+def _log_note(
+    channel: str,
+    name: str,
+    phone: str | None,
+    lang: str,
+    batch: str | None,
+    text: str,
+    alert_id=None,
+    urgent: bool = True,
+) -> str:
     import notify
 
     status, pid = notify.send_whatsapp(phone, text, urgent) if phone else ("outbox", None)
-    conn.execute("INSERT INTO notifications (channel, name, phone, language, batch, alert_id, message, status, provider_id) VALUES (?,?,?,?,?,?,?,?,?)",
-                 (channel if phone else "in_app", name, phone or "", lang, batch, alert_id, text, status, pid))
+    conn.execute(
+        (
+            "INSERT INTO notifications (channel, name, phone, language, batch, "
+            "alert_id, message, status, provider_id) VALUES (?,?,?,?,?,?,?,?,?)"
+        ),
+        (channel if phone else "in_app", name, phone or "", lang, batch, alert_id, text, status, pid),
+    )
     return status
 
 
 # ---- who is calling: server-issued sessions (sessions.py), never an id the browser chooses ----
+
 
 def session_token(request: Request) -> str | None:
     """HttpOnly cookie (the web app) or `Authorization: Bearer` (API clients, tests)."""
@@ -261,8 +299,10 @@ def _device(account: str) -> str:
 
 # ---- demo mode and rate limits ----
 
+
 def demo_mode() -> bool:
-    """KINCARE_DEMO=1 (run.bat on a laptop): login codes shown on screen, simulators open. Never set it on a public server."""
+    """KINCARE_DEMO=1 (run.bat on a laptop): login codes shown on screen, simulators open. Never set it on a public
+    server."""
     import os
 
     return os.environ.get("KINCARE_DEMO") == "1"
@@ -289,7 +329,6 @@ def rate_limit(request: Request, bucket: str, limit: int, per_seconds: int) -> N
         if len(q) >= limit:
             raise HTTPException(429, "Too many attempts. Wait a minute and try again.")
         q.append(now)
-
 
 
 # Startup work registered by route modules (nightly ingest, reminder loops, cache warm-up, Telegram polling).

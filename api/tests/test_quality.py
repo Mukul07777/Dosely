@@ -1,4 +1,5 @@
 """Matcher accuracy guards: real maker-name pairs from CDSCO alerts, plus the benchmark on the real alert table."""
+
 import sqlite3
 from pathlib import Path
 
@@ -47,7 +48,10 @@ def test_benchmark_on_real_alerts():
 
     conn = sqlite3.connect(REAL_DB)
     conn.row_factory = sqlite3.Row
-    lookup = lambda b: [dict(r) for r in conn.execute("SELECT * FROM alerts WHERE batch_norm = ?", (normalise_batch(b),))]  # noqa: E731
+
+    def lookup(b):
+        return [dict(r) for r in conn.execute("SELECT * FROM alerts WHERE batch_norm = ?", (normalise_batch(b),))]
+
     r = quality.measure(conn, lookup, n=300)
     assert r["false_alarms"] == 0 and r["recall_pct"] == 100.0
     assert r["wrong_maker_marked_strong"] <= 2 and r["right_maker_strong_pct"] >= 98

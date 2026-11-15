@@ -7,6 +7,7 @@ than every other batch is a signal, possibly before any regulator list names it.
 
 A signal is a reason for a lab to test the batch. It is not proof, and we say so.
 """
+
 from collections import Counter
 
 from checkin import RED_FLAGS, SYMPTOMS
@@ -53,33 +54,47 @@ def detect(conn) -> list[dict]:
                 prr, chi2 = None, None
                 flagged = a >= 3 and a / n >= 0.5
             label = SYMPTOMS.get(s, (s, s))
-            symptoms.append({"key": s, "en": label[0], "hi": label[1], "n": a, "share": round(a / n, 2),
-                             "prr": prr, "chi2": chi2, "flagged": flagged, "red_flag": s in RED_FLAGS})
+            symptoms.append(
+                {
+                    "key": s,
+                    "en": label[0],
+                    "hi": label[1],
+                    "n": a,
+                    "share": round(a / n, 2),
+                    "prr": prr,
+                    "chi2": chi2,
+                    "flagged": flagged,
+                    "red_flag": s in RED_FLAGS,
+                }
+            )
 
         red = sum(1 for r in rs if r["sym"] & RED_FLAGS)
         level = "urgent" if red >= 2 else "signal" if any(x["flagged"] for x in symptoms) else "watch"
         listed = conn.execute(
-            "SELECT alert_month, category, product_name FROM alerts WHERE batch_norm = ? ORDER BY alert_month LIMIT 1", (key,)
+            "SELECT alert_month, category, product_name FROM alerts WHERE batch_norm = ? ORDER BY alert_month LIMIT 1",
+            (key,),
         ).fetchone()
         first, last = rs[0]["created_at"], rs[-1]["created_at"]
-        out.append({
-            "batch": Counter(r["batch"] for r in rs).most_common(1)[0][0],
-            "batch_norm": key,
-            "brand": _common(r["brand"] for r in rs),
-            "maker": _common(r["maker"] for r in rs),
-            "reports": n,
-            "red_flag_reports": red,
-            "cities": sorted({r["city"] for r in rs if r["city"]}),
-            "first_report": first,
-            "last_report": last,
-            "level": level,
-            "method": method,
-            "symptoms": symptoms,
-            "not_working": counts.get("no_effect", 0),
-            "simulated": all(r["origin"] == "simulated" for r in rs),
-            "regulator": dict(listed) if listed else None,
-            "ahead_of_regulator": listed is None or listed["alert_month"] > first[:7],
-        })
+        out.append(
+            {
+                "batch": Counter(r["batch"] for r in rs).most_common(1)[0][0],
+                "batch_norm": key,
+                "brand": _common(r["brand"] for r in rs),
+                "maker": _common(r["maker"] for r in rs),
+                "reports": n,
+                "red_flag_reports": red,
+                "cities": sorted({r["city"] for r in rs if r["city"]}),
+                "first_report": first,
+                "last_report": last,
+                "level": level,
+                "method": method,
+                "symptoms": symptoms,
+                "not_working": counts.get("no_effect", 0),
+                "simulated": all(r["origin"] == "simulated" for r in rs),
+                "regulator": dict(listed) if listed else None,
+                "ahead_of_regulator": listed is None or listed["alert_month"] > first[:7],
+            }
+        )
     rank = {"urgent": 0, "signal": 1, "watch": 2}
     out.sort(key=lambda s: (rank[s["level"]], -s["reports"]))
     return out
@@ -91,7 +106,9 @@ def _common(values) -> str | None:
 
 
 def summary(conn) -> dict:
-    one = lambda sql: conn.execute(sql).fetchone()[0]
+    def one(sql):
+        return conn.execute(sql).fetchone()[0]
+
     return {
         "reports": one("SELECT COUNT(*) FROM reports"),
         "batches": one("SELECT COUNT(DISTINCT batch_norm) FROM reports"),

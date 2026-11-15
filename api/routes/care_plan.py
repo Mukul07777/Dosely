@@ -1,4 +1,5 @@
 """Care: vitals, prescriptions, doses, reminders, refills, interactions, doctor report."""
+
 import json
 import threading
 from datetime import date, datetime
@@ -8,15 +9,27 @@ from pydantic import BaseModel
 
 import entitlements
 import telegram
-from matcher import match
 import vault
-
-from core import _log_note, _phone, _plans, alert_device, candidates, conn, current_account, now, on_startup, rows, run_check
+from core import (
+    _log_note,
+    _phone,
+    _plans,
+    alert_device,
+    candidates,
+    conn,
+    current_account,
+    now,
+    on_startup,
+    rows,
+    run_check,
+)
+from matcher import match
 
 router = APIRouter()
 
 
 # ---- care: vitals, prescriptions, dose reminders, report ----
+
 
 class VitalsIn(BaseModel):
     member: str = "Me"
@@ -34,20 +47,35 @@ def vitals_add(v: VitalsIn, account: str = Depends(current_account)):
     import care
 
     dev = account
-    for val, lo, hi_, label in ((v.temp_c, 30, 45, "Temperature"), (v.bp_sys, 50, 260, "BP"), (v.bp_dia, 30, 180, "BP"),
-                                (v.pulse, 25, 250, "Pulse"), (v.spo2, 50, 100, "Oxygen")):
+    for val, lo, hi_, label in (
+        (v.temp_c, 30, 45, "Temperature"),
+        (v.bp_sys, 50, 260, "BP"),
+        (v.bp_dia, 30, 180, "BP"),
+        (v.pulse, 25, 250, "Pulse"),
+        (v.spo2, 50, 100, "Oxygen"),
+    ):
         if val is not None and not lo <= val <= hi_:
             raise HTTPException(400, f"{label} reading looks wrong")
     if all(x is None for x in (v.temp_c, v.bp_sys, v.pulse, v.spo2)):
         raise HTTPException(400, "Enter at least one reading")
     a = care.assess(v.temp_c, v.bp_sys, v.bp_dia, v.pulse, v.spo2)
     conn.execute(
-        "INSERT INTO vitals (device, member, temp_c, bp_sys, bp_dia, pulse, spo2, source, level, note) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (
+            "INSERT INTO vitals (device, member, temp_c, bp_sys, bp_dia, "
+            "pulse, spo2, source, level, note) VALUES (?,?,?,?,?,?,?,?,?,?)"
+        ),
         (dev, v.member, v.temp_c, v.bp_sys, v.bp_dia, v.pulse, v.spo2, v.source, a["level"], v.note),
     )
     conn.commit()
     if a["level"] == "urgent":  # caregivers allowed to see vitals hear about it at once
-        a["told"] = tell_caregivers(dev, v.member, "vitals", f"⚠️ {v.member}: worrying reading", f"{', '.join(a['reasons'])}. {a['en']}", "vitals")
+        a["told"] = tell_caregivers(
+            dev,
+            v.member,
+            "vitals",
+            f"⚠️ {v.member}: worrying reading",
+            f"{', '.join(a['reasons'])}. {a['en']}",
+            "vitals",
+        )
     return a
 
 
@@ -71,9 +99,9 @@ async def prescription_scan(image: UploadFile = File(...)):
     try:
         lines = ocr.read_lines(data)
     except ValueError as e:
-        raise HTTPException(400, str(e))
-    text = "\n".join(l["text"] for l in lines)
-    return {**care.parse_prescription(text), "lines": [l["text"] for l in lines]}
+        raise HTTPException(400, str(e)) from e
+    text = "\n".join(line["text"] for line in lines)
+    return {**care.parse_prescription(text), "lines": [line["text"] for line in lines]}
 
 
 class PlanMed(BaseModel):
@@ -106,11 +134,18 @@ def plan_add(p: PlanIn, account: str = Depends(current_account)):
     if not ok:
         raise HTTPException(402, why)
     start = p.start_date or datetime.now().date().isoformat()
-    cur = conn.execute("INSERT INTO plans (device, member, doctor, diagnosis, start_date, advice) VALUES (?,?,?,?,?,?)",
-                       (dev, p.member, p.doctor, vault.seal(p.diagnosis, "plans", "diagnosis"), start, json.dumps(p.advice)))
+    cur = conn.execute(
+        "INSERT INTO plans (device, member, doctor, diagnosis, start_date, advice) VALUES (?,?,?,?,?,?)",
+        (dev, p.member, p.doctor, vault.seal(p.diagnosis, "plans", "diagnosis"), start, json.dumps(p.advice)),
+    )
     for m in p.medicines:
-        conn.execute("INSERT INTO plan_meds (plan_id, name, strength, food, morning, noon, night, days, as_needed, batch) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                     (cur.lastrowid, m.name, m.strength, m.food, m.morning, m.noon, m.night, m.days, int(m.as_needed), m.batch))
+        conn.execute(
+            (
+                "INSERT INTO plan_meds (plan_id, name, strength, food, morning, "
+                "noon, night, days, as_needed, batch) VALUES (?,?,?,?,?,?,?,?,?,?)"
+            ),
+            (cur.lastrowid, m.name, m.strength, m.food, m.morning, m.noon, m.night, m.days, int(m.as_needed), m.batch),
+        )
     conn.commit()
     # Prescribed medicines with a batch number are watched for recalls too.
     flagged = [m.batch for m in p.medicines if m.batch and match(candidates(m.batch), m.batch, None, m.name)]
@@ -144,9 +179,21 @@ def care_today(day: str | None = None, account: str = Depends(current_account)):
     for p in _plans(dev):
         for m in p["medicines"]:
             for d in care.doses_for(m, p["start_date"], on):
-                taken = conn.execute("SELECT taken_at FROM doses WHERE med_id = ? AND day = ? AND slot = ?", (m["id"], on.isoformat(), d["slot"])).fetchone()
-                out.append({**d, "med_id": m["id"], "name": m["name"], "strength": m["strength"], "food": m["food"],
-                            "member": p["member"], "taken_at": taken["taken_at"] if taken else None})
+                taken = conn.execute(
+                    "SELECT taken_at FROM doses WHERE med_id = ? AND day = ? AND slot = ?",
+                    (m["id"], on.isoformat(), d["slot"]),
+                ).fetchone()
+                out.append(
+                    {
+                        **d,
+                        "med_id": m["id"],
+                        "name": m["name"],
+                        "strength": m["strength"],
+                        "food": m["food"],
+                        "member": p["member"],
+                        "taken_at": taken["taken_at"] if taken else None,
+                    }
+                )
     out.sort(key=lambda x: (x["time"], x["member"]))
     advice = sorted({a for p in _plans(dev) for a in p["advice"]})
     return {"day": on.isoformat(), "doses": out, "advice": advice}
@@ -162,13 +209,20 @@ class DoseIn(BaseModel):
 @router.post("/api/care/doses")
 def dose_mark(d: DoseIn, account: str = Depends(current_account)):
     dev = account
-    owner = conn.execute("SELECT 1 FROM plan_meds m JOIN plans p ON p.id = m.plan_id WHERE m.id = ? AND p.device = ?", (d.med_id, dev)).fetchone()
+    owner = conn.execute(
+        "SELECT 1 FROM plan_meds m JOIN plans p ON p.id = m.plan_id WHERE m.id = ? AND p.device = ?", (d.med_id, dev)
+    ).fetchone()
     if not owner or d.slot not in ("morning", "noon", "night"):
         raise HTTPException(404, "Dose not found")
     day = d.day or datetime.now().date().isoformat()
     if d.taken:
-        conn.execute("INSERT INTO doses (med_id, day, slot, taken_at) VALUES (?,?,?,?) ON CONFLICT(med_id, day, slot) DO UPDATE SET taken_at = excluded.taken_at",
-                     (d.med_id, day, d.slot, now()))
+        conn.execute(
+            (
+                "INSERT INTO doses (med_id, day, slot, taken_at) VALUES (?,?,?,?) ON "
+                "CONFLICT(med_id, day, slot) DO UPDATE SET taken_at = excluded.taken_at"
+            ),
+            (d.med_id, day, d.slot, now()),
+        )
     else:
         conn.execute("DELETE FROM doses WHERE med_id = ? AND day = ? AND slot = ?", (d.med_id, day, d.slot))
     conn.commit()
@@ -193,8 +247,13 @@ def purchase(b: PurchaseIn, account: str = Depends(current_account)):
     import notify
 
     dev = account
-    med = conn.execute("SELECT m.*, p.member, p.start_date FROM plan_meds m JOIN plans p ON p.id = m.plan_id WHERE m.id = ? AND p.device = ?",
-                       (b.med_id, dev)).fetchone()
+    med = conn.execute(
+        (
+            "SELECT m.*, p.member, p.start_date FROM plan_meds m JOIN "
+            "plans p ON p.id = m.plan_id WHERE m.id = ? AND p.device = ?"
+        ),
+        (b.med_id, dev),
+    ).fetchone()
     if not med:
         raise HTTPException(404, "Medicine not found in your plans")
     phone = _phone(b.phone)
@@ -209,24 +268,57 @@ def purchase(b: PurchaseIn, account: str = Depends(current_account)):
     # A refill adds to what is still left from the last purchase.
     before = _refill(dict(med))
     qty = (b.qty or _pack_qty(med["name"], med["strength"]) or 0) + (before["left"] if before else 0)
-    conn.execute("UPDATE plan_meds SET batch = ?, maker = ?, expiry = ?, pharmacy = ?, phone = ?, language = ?, bought_at = ?, qty = ?, refill_sent_at = NULL WHERE id = ?",
-                 (b.batch.strip(), b.maker, b.expiry, b.pharmacy, reminder_phone, lang, now(), qty or None, b.med_id))
+    conn.execute(
+        (
+            "UPDATE plan_meds SET batch = ?, maker = ?, expiry = ?, pharmacy = ?, phone "
+            "= ?, language = ?, bought_at = ?, qty = ?, refill_sent_at = NULL WHERE id = ?"
+        ),
+        (b.batch.strip(), b.maker, b.expiry, b.pharmacy, reminder_phone, lang, now(), qty or None, b.med_id),
+    )
     med = {**dict(med), "batch": b.batch.strip()}
     check = run_check(b.batch, b.maker, med["name"])
 
     if check["matches"]:
         alert = check["matches"][0]["alert"]
-        status = _log_note("whatsapp", med["member"], phone, lang, b.batch, notify.whatsapp_text(alert, b.batch, med["member"], lang), alert["id"])
-        alert_device(dev, f"⛔ Don't take {med['name']}: batch {b.batch.strip()} is flagged",
-                  f"{alert['product_name']}: {'spurious' if alert['category'] == 'spurious' else 'not of standard quality'} ({alert['alert_month']}). Speak to your pharmacist.",
-                  "/care", f"recall-{b.med_id}")
+        status = _log_note(
+            "whatsapp",
+            med["member"],
+            phone,
+            lang,
+            b.batch,
+            notify.whatsapp_text(alert, b.batch, med["member"], lang),
+            alert["id"],
+        )
+        alert_device(
+            dev,
+            f"⛔ Don't take {med['name']}: batch {b.batch.strip()} is flagged",
+            (
+                f"{alert['product_name']}: "
+                f"{'spurious' if alert['category'] == 'spurious' else 'not of standard quality'} "
+                f"({alert['alert_month']}). Speak to your pharmacist."
+            ),
+            "/care",
+            f"recall-{b.med_id}",
+        )
         conn.commit()
-        return {"verdict": "alert_found", "check": check, "due_now": False, "next_time": None, "message_status": status, "whatsapp": whatsapp_state}
+        return {
+            "verdict": "alert_found",
+            "check": check,
+            "due_now": False,
+            "next_time": None,
+            "message_status": status,
+            "whatsapp": whatsapp_state,
+        }
 
     today = datetime.now()
     hm = today.strftime("%H:%M")
     doses = care.doses_for(med, med["start_date"], today.date())
-    taken = {r["slot"] for r in conn.execute("SELECT slot FROM doses WHERE med_id = ? AND day = ?", (b.med_id, today.date().isoformat()))}
+    taken = {
+        r["slot"]
+        for r in conn.execute(
+            "SELECT slot FROM doses WHERE med_id = ? AND day = ?", (b.med_id, today.date().isoformat())
+        )
+    }
     pending = [d for d in doses if d["slot"] not in taken]
     due_now = any(d["time"] <= hm for d in pending)
     upcoming = [d["time"] for d in pending if d["time"] > hm]
@@ -234,11 +326,30 @@ def purchase(b: PurchaseIn, account: str = Depends(current_account)):
     # The purchase message already says "take it now", so don't also send catch-up reminders for past slots.
     for d in pending:
         if d["time"] <= hm:
-            conn.execute("INSERT OR IGNORE INTO reminders_sent (med_id, day, slot, sent_at) VALUES (?,?,?,?)", (b.med_id, today.date().isoformat(), d["slot"], now()))
-    status = _log_note("whatsapp", med["member"], reminder_phone, lang, b.batch, notify.purchase_text(med, med["member"], due_now, next_time, lang))
-    telegram.send_device(conn, dev, notify.purchase_text(med, med["member"], due_now, next_time, lang), role="self", buttons=TG_BUTTONS)
+            conn.execute(
+                "INSERT OR IGNORE INTO reminders_sent (med_id, day, slot, sent_at) VALUES (?,?,?,?)",
+                (b.med_id, today.date().isoformat(), d["slot"], now()),
+            )
+    status = _log_note(
+        "whatsapp",
+        med["member"],
+        reminder_phone,
+        lang,
+        b.batch,
+        notify.purchase_text(med, med["member"], due_now, next_time, lang),
+    )
+    telegram.send_device(
+        conn, dev, notify.purchase_text(med, med["member"], due_now, next_time, lang), role="self", buttons=TG_BUTTONS
+    )
     conn.commit()
-    return {"verdict": "no_alert_found", "check": check, "due_now": due_now, "next_time": next_time, "message_status": status, "whatsapp": whatsapp_state}
+    return {
+        "verdict": "no_alert_found",
+        "check": check,
+        "due_now": due_now,
+        "next_time": next_time,
+        "message_status": status,
+        "whatsapp": whatsapp_state,
+    }
 
 
 def _pack_qty(name: str, strength: str | None) -> float | None:
@@ -255,7 +366,9 @@ def _refill(m: dict) -> dict | None:
 
     if not m.get("qty") or not m.get("bought_at"):
         return None
-    taken = conn.execute("SELECT COUNT(*) FROM doses WHERE med_id = ? AND taken_at > ?", (m["id"], m["bought_at"])).fetchone()[0]
+    taken = conn.execute(
+        "SELECT COUNT(*) FROM doses WHERE med_id = ? AND taken_at > ?", (m["id"], m["bought_at"])
+    ).fetchone()[0]
     return care.refill_status(m, m["start_date"], m["qty"], taken, datetime.now().date())
 
 
@@ -268,11 +381,14 @@ def _cheaper_clean(m: dict) -> str | None:
         return None
     alt = prices.alternatives(conn, r["id"], limit=0)
     best = alt and alt["cheapest_clean"]
-    return f"{best['name']}, ₹{best['unit_price']:.2f} a tablet" if best and best["unit_price"] < r["unit_price"] else None
+    return (
+        f"{best['name']}, ₹{best['unit_price']:.2f} a tablet" if best and best["unit_price"] < r["unit_price"] else None
+    )
 
 
 def send_due_reminders() -> int:
-    """WhatsApp / phone notification for every bought medicine whose dose time has arrived today and is not yet taken."""
+    """WhatsApp / phone notification for every bought medicine whose dose time has arrived today and is not yet
+    taken."""
     import care
     import notify
 
@@ -280,23 +396,39 @@ def send_due_reminders() -> int:
     hm = datetime.now().strftime("%H:%M")
     sent = 0
     for m in rows("""SELECT m.*, p.member, p.start_date, p.device FROM plan_meds m JOIN plans p ON p.id = m.plan_id
-                     WHERE (m.bought_at IS NOT NULL AND (m.phone IS NOT NULL OR p.device IN (SELECT device FROM push_subs)))
+                     WHERE (m.bought_at IS NOT NULL AND (m.phone IS NOT NULL OR p.device IN (SELECT device FROM
+                     push_subs)))
                         OR p.device IN (SELECT device FROM tg_links WHERE role = 'self')"""):
         lang = m["language"] or "hi"
         for d in care.doses_for(m, m["start_date"], day):
             if d["time"] > hm:
                 continue
-            done = conn.execute("SELECT 1 FROM doses WHERE med_id = ? AND day = ? AND slot = ? UNION SELECT 1 FROM reminders_sent WHERE med_id = ? AND day = ? AND slot = ?",
-                                (m["id"], day.isoformat(), d["slot"]) * 2).fetchone()
+            done = conn.execute(
+                (
+                    "SELECT 1 FROM doses WHERE med_id = ? AND day = ? AND slot = ? UNION "
+                    "SELECT 1 FROM reminders_sent WHERE med_id = ? AND day = ? AND slot = ?"
+                ),
+                (m["id"], day.isoformat(), d["slot"]) * 2,
+            ).fetchone()
             if done:
                 continue
-            conn.execute("INSERT INTO reminders_sent (med_id, day, slot, sent_at) VALUES (?,?,?,?)", (m["id"], day.isoformat(), d["slot"], now()))
+            conn.execute(
+                "INSERT INTO reminders_sent (med_id, day, slot, sent_at) VALUES (?,?,?,?)",
+                (m["id"], day.isoformat(), d["slot"], now()),
+            )
             text = notify.dose_text(m, m["member"], d["time"], lang)
             if m["phone"] and m["bought_at"]:
                 _log_note("whatsapp", m["member"], m["phone"], lang, m["batch"], text, urgent=False)
-            # Same tag as the in-page reminder, so an open tab and a push never show twice. Telegram: reply with the button to tick it.
-            alert_device(m["device"], f"⏰ Time for {m['name']}", text.removeprefix("Dosely: "), "/care", f"dose-{m['id']}-{d['slot']}-{day.isoformat()}",
-                         buttons=TG_BUTTONS)
+            # Same tag as the in-page reminder, so an open tab and a push never show twice. Telegram: reply with the
+            # button to tick it.
+            alert_device(
+                m["device"],
+                f"⏰ Time for {m['name']}",
+                text.removeprefix("Dosely: "),
+                "/care",
+                f"dose-{m['id']}-{d['slot']}-{day.isoformat()}",
+                buttons=TG_BUTTONS,
+            )
             sent += 1
         # Refill: once per purchase, when about REFILL_DAYS of tablets are left.
         r = _refill(m)
@@ -305,7 +437,13 @@ def send_due_reminders() -> int:
             text = notify.refill_text(m, m["member"], r["left"], r["days_left"], _cheaper_clean(m), lang)
             if m["phone"]:
                 _log_note("whatsapp", m["member"], m["phone"], lang, m["batch"], text, urgent=False)
-            alert_device(m["device"], f"💊 {m['name']}: {r['left']} left", text.removeprefix("Dosely: "), "/care", f"refill-{m['id']}")
+            alert_device(
+                m["device"],
+                f"💊 {m['name']}: {r['left']} left",
+                text.removeprefix("Dosely: "),
+                "/care",
+                f"refill-{m['id']}",
+            )
             sent += 1
     conn.commit()
     return sent
@@ -366,8 +504,7 @@ def _warm_caches():
     import quality
 
     def warm():
-        for fn in (stats, datasets, insights_endpoint, recall_gap,
-                   lambda: quality.cached(conn, candidates)):
+        for fn in (stats, datasets, insights_endpoint, recall_gap, lambda: quality.cached(conn, candidates)):
             try:
                 fn()
             except Exception as e:  # a cold cache is only slower, never wrong
@@ -384,8 +521,16 @@ def care_refills(account: str = Depends(current_account)):
         for m in p["medicines"]:
             r = _refill({**m, "start_date": p["start_date"]})
             if r:
-                out.append({**r, "med_id": m["id"], "name": m["name"], "strength": m["strength"], "member": p["member"],
-                            "reminded_at": m["refill_sent_at"]})
+                out.append(
+                    {
+                        **r,
+                        "med_id": m["id"],
+                        "name": m["name"],
+                        "strength": m["strength"],
+                        "member": p["member"],
+                        "reminded_at": m["refill_sent_at"],
+                    }
+                )
     return sorted(out, key=lambda x: x["days_left"])
 
 
@@ -394,7 +539,9 @@ def care_interactions(names: str | None = None, account: str = Depends(current_a
     """Pairs of the patient's medicines that mention each other on their official label."""
     import interactions
 
-    meds = [n.strip() for n in names.split(",")] if names else [m["name"] for p in _plans(account) for m in p["medicines"]]
+    meds = (
+        [n.strip() for n in names.split(",")] if names else [m["name"] for p in _plans(account) for m in p["medicines"]]
+    )
     return interactions.check(conn, [m for m in meds if m])
 
 
@@ -415,10 +562,21 @@ def care_report(member: str = "Me", account: str = Depends(current_account)):
             while d <= today:
                 for s in care.doses_for(m, p["start_date"], d):
                     due += 1
-                    taken += bool(conn.execute("SELECT 1 FROM doses WHERE med_id = ? AND day = ? AND slot = ?", (m["id"], d.isoformat(), s["slot"])).fetchone())
+                    taken += bool(
+                        conn.execute(
+                            "SELECT 1 FROM doses WHERE med_id = ? AND day = ? AND slot = ?",
+                            (m["id"], d.isoformat(), s["slot"]),
+                        ).fetchone()
+                    )
                 d = date.fromordinal(d.toordinal() + 1)
             adherence.append({"name": m["name"], "due": due, "taken": taken})
-    return {"member": member, "generated_at": now(), "vitals": vitals_list(member, account), "plans": plans, "adherence": adherence}
+    return {
+        "member": member,
+        "generated_at": now(),
+        "vitals": vitals_list(member, account),
+        "plans": plans,
+        "adherence": adherence,
+    }
 
 
 # Imported last, used only when a request runs: these modules import from this one too.

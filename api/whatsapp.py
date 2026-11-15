@@ -10,18 +10,19 @@ Env: WHATSAPP_TOKEN, WHATSAPP_PHONE_ID (from Meta > WhatsApp > API setup), WHATS
 webhook), optional WHATSAPP_APP_SECRET (verifies webhook signatures), WHATSAPP_TEMPLATE
 (approved Utility template with one body variable {{1}}, used outside the window).
 """
+
 import hashlib
 import hmac
 import os
 import re
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import requests
 
 GRAPH = "https://graph.facebook.com/v21.0"
 WINDOW = timedelta(hours=23, minutes=50)  # a little under 24 h, so a slow send never lands outside
-PAID_CAP = 50          # paid (template) messages per number per month; past it, reminders go as free phone notifications
+PAID_CAP = 50  # paid (template) messages per number per month; past it, reminders go as free phone notifications
 PAID_RATE_INR = 0.115 * 1.18  # Meta India Utility rate + GST, per delivered template message
 
 SCHEMA = """
@@ -55,12 +56,17 @@ def to_e164(wa_id: str) -> str:
 
 def window_open(conn: sqlite3.Connection, phone: str, now: datetime | None = None) -> bool:
     r = conn.execute("SELECT last_at FROM wa_inbound WHERE phone = ?", (phone,)).fetchone()
-    return bool(r) and (now or datetime.now(timezone.utc)) - datetime.fromisoformat(r[0]) < WINDOW
+    return bool(r) and (now or datetime.now(UTC)) - datetime.fromisoformat(r[0]) < WINDOW
 
 
 def record_inbound(conn: sqlite3.Connection, phone: str, text: str) -> None:
-    conn.execute("INSERT INTO wa_inbound (phone, last_at, last_text) VALUES (?,?,?) ON CONFLICT(phone) DO UPDATE SET last_at = excluded.last_at, last_text = excluded.last_text",
-                 (phone, datetime.now(timezone.utc).isoformat(), text[:200]))
+    conn.execute(
+        (
+            "INSERT INTO wa_inbound (phone, last_at, last_text) VALUES (?,?,?) ON CONFLICT(phone) "
+            "DO UPDATE SET last_at = excluded.last_at, last_text = excluded.last_text"
+        ),
+        (phone, datetime.now(UTC).isoformat(), text[:200]),
+    )
     conn.commit()
 
 
@@ -76,14 +82,28 @@ def payload(phone: str, text: str, in_window: bool, lang: str = "en") -> dict:
     template = os.environ.get("WHATSAPP_TEMPLATE")
     if in_window or not template:
         # Without a template, free text is the only option; Meta drops it outside the window (error 131047).
-        return {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": text[:4000], "preview_url": True}}
-    return {"messaging_product": "whatsapp", "to": to, "type": "template",
-            "template": {"name": template, "language": {"code": os.environ.get("WHATSAPP_TEMPLATE_LANG", "en")},
-                         "components": [{"type": "body", "parameters": [{"type": "text", "text": template_param(text)}]}]}}
+        return {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "text",
+            "text": {"body": text[:4000], "preview_url": True},
+        }
+    return {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "template",
+        "template": {
+            "name": template,
+            "language": {"code": os.environ.get("WHATSAPP_TEMPLATE_LANG", "en")},
+            "components": [{"type": "body", "parameters": [{"type": "text", "text": template_param(text)}]}],
+        },
+    }
 
 
 def paid_this_month(conn: sqlite3.Connection, phone: str) -> int:
-    r = conn.execute("SELECT n FROM wa_paid WHERE phone = ? AND month = ?", (phone, datetime.now().strftime("%Y-%m"))).fetchone()
+    r = conn.execute(
+        "SELECT n FROM wa_paid WHERE phone = ? AND month = ?", (phone, datetime.now().strftime("%Y-%m"))
+    ).fetchone()
     return r[0] if r else 0
 
 
@@ -98,8 +118,12 @@ def send(conn: sqlite3.Connection, phone: str, text: str, urgent: bool = False) 
         return "capped", None
     body = payload(phone, text, open_)
     try:
-        r = requests.post(f"{GRAPH}/{os.environ['WHATSAPP_PHONE_ID']}/messages", json=body,
-                          headers={"Authorization": f"Bearer {os.environ['WHATSAPP_TOKEN']}"}, timeout=20)
+        r = requests.post(
+            f"{GRAPH}/{os.environ['WHATSAPP_PHONE_ID']}/messages",
+            json=body,
+            headers={"Authorization": f"Bearer {os.environ['WHATSAPP_TOKEN']}"},
+            timeout=20,
+        )
     except requests.RequestException as e:
         print("whatsapp:", e)
         return "failed", None
@@ -107,8 +131,10 @@ def send(conn: sqlite3.Connection, phone: str, text: str, urgent: bool = False) 
         print("whatsapp:", r.status_code, r.text[:300])
         return "failed", None
     if paid:
-        conn.execute("INSERT INTO wa_paid (phone, month, n) VALUES (?,?,1) ON CONFLICT(phone, month) DO UPDATE SET n = n + 1",
-                     (phone, datetime.now().strftime("%Y-%m")))
+        conn.execute(
+            "INSERT INTO wa_paid (phone, month, n) VALUES (?,?,1) ON CONFLICT(phone, month) DO UPDATE SET n = n + 1",
+            (phone, datetime.now().strftime("%Y-%m")),
+        )
         conn.commit()
     return "sent", (r.json().get("messages") or [{}])[0].get("id")
 
@@ -128,8 +154,12 @@ def incoming(body: dict) -> list[tuple[str, str]]:
     for entry in body.get("entry", []):
         for ch in entry.get("changes", []):
             for m in ch.get("value", {}).get("messages", []) or []:
-                text = (m.get("text") or {}).get("body") or (m.get("button") or {}).get("text") \
-                    or ((m.get("interactive") or {}).get("button_reply") or {}).get("title") or ""
+                text = (
+                    (m.get("text") or {}).get("body")
+                    or (m.get("button") or {}).get("text")
+                    or ((m.get("interactive") or {}).get("button_reply") or {}).get("title")
+                    or ""
+                )
                 if m.get("from"):
                     out.append((to_e164(m["from"]), text.strip()))
     return out
@@ -141,7 +171,9 @@ def incoming_images(body: dict) -> list[tuple[str, str, str]]:
     for entry in body.get("entry", []):
         for ch in entry.get("changes", []):
             for m in ch.get("value", {}).get("messages", []) or []:
-                media = m.get("image") or (m.get("document") if (m.get("document") or {}).get("mime_type", "").startswith("image/") else None)
+                media = m.get("image") or (
+                    m.get("document") if (m.get("document") or {}).get("mime_type", "").startswith("image/") else None
+                )
                 if m.get("from") and media and media.get("id"):
                     out.append((to_e164(m["from"]), media["id"], (media.get("caption") or "").strip()))
     return out

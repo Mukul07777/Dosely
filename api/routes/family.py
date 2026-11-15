@@ -1,5 +1,6 @@
 """Caregivers with consent: invites, links, dashboard, nudges, alerts to caregivers."""
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -8,7 +9,6 @@ import caregiver as caregiver_mod
 import push
 import telegram
 import vault
-
 from core import conn, current_account, on_startup, rate_limit, signed_in_account
 
 router = APIRouter()
@@ -16,7 +16,8 @@ router = APIRouter()
 conn.executescript(caregiver_mod.SCHEMA)
 conn.executescript(telegram.SCHEMA)
 conn.execute("""CREATE TABLE IF NOT EXISTS dadi_chat (
-    id INTEGER PRIMARY KEY, device TEXT NOT NULL, member TEXT NOT NULL DEFAULT 'Me', role TEXT NOT NULL, text TEXT NOT NULL,
+    id INTEGER PRIMARY KEY, device TEXT NOT NULL, member TEXT NOT NULL DEFAULT 'Me', role TEXT NOT NULL, text TEXT NOT
+    NULL,
     kind TEXT, data TEXT, channel TEXT DEFAULT 'app', at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))""")
 conn.execute("CREATE INDEX IF NOT EXISTS idx_dadi_device ON dadi_chat(device, id)")
 WEB = __import__("os").environ.get("PUBLIC_WEB_URL", "http://localhost:3000").rstrip("/")
@@ -27,16 +28,19 @@ def _who(link: dict) -> str:
 
 
 def tell_caregivers(dev: str, member: str, scope: str | None, title: str, text: str, tag: str) -> list[str]:
-    """Push + Telegram to every caregiver the elder allowed for this scope (None = any live link). Logged for the elder."""
+    """Push + Telegram to every caregiver the elder allowed for this scope (None = any live link). Logged for the
+    elder."""
     told = []
-    for r in conn.execute("SELECT * FROM care_links WHERE elder_device = ? AND member = ? AND revoked_at IS NULL", (dev, member)).fetchall():
-        l = caregiver_mod._link_row(r)
-        if scope and scope not in l["scopes"]:
+    for r in conn.execute(
+        "SELECT * FROM care_links WHERE elder_device = ? AND member = ? AND revoked_at IS NULL", (dev, member)
+    ).fetchall():
+        link = caregiver_mod._link_row(r)
+        if scope and scope not in link["scopes"]:
             continue
-        push.send(conn, l["caregiver_device"], title, text, f"/family?link={l['id']}", f"{tag}-{l['id']}")
-        telegram.send_device(conn, l["caregiver_device"], f"{title}\n{text}\n\n{WEB}/family?link={l['id']}")
-        caregiver_mod.log(conn, l["id"], "alerted", title)
-        told.append(l["caregiver_name"])
+        push.send(conn, link["caregiver_device"], title, text, f"/family?link={link['id']}", f"{tag}-{link['id']}")
+        telegram.send_device(conn, link["caregiver_device"], f"{title}\n{text}\n\n{WEB}/family?link={link['id']}")
+        caregiver_mod.log(conn, link["id"], "alerted", title)
+        told.append(link["caregiver_name"])
     conn.commit()
     return told
 
@@ -44,12 +48,22 @@ def tell_caregivers(dev: str, member: str, scope: str | None, title: str, text: 
 def send_caregiver_alerts() -> int:
     """Doses still not ticked an hour after their time: tell the caregivers who may see doses."""
     n = 0
-    for l, d in caregiver_mod.missed_doses(conn):
-        title = f"{_who(l)} hasn't taken {d['name']}"
-        text = f"The {d['time']} {d['slot']} dose isn't ticked yet. A gentle call may help. You can send a reminder from Dosely."
-        push.send(conn, l["caregiver_device"], title, text, f"/family?link={l['id']}", f"missed-{d['med_id']}-{d['slot']}")
-        telegram.send_device(conn, l["caregiver_device"], f"⏰ {title}\n{text}\n\n{WEB}/family?link={l['id']}")
-        caregiver_mod.log(conn, l["id"], "alerted", title)
+    for link, d in caregiver_mod.missed_doses(conn):
+        title = f"{_who(link)} hasn't taken {d['name']}"
+        text = (
+            f"The {d['time']} {d['slot']} dose isn't ticked yet. A "
+            f"gentle call may help. You can send a reminder from Dosely."
+        )
+        push.send(
+            conn,
+            link["caregiver_device"],
+            title,
+            text,
+            f"/family?link={link['id']}",
+            f"missed-{d['med_id']}-{d['slot']}",
+        )
+        telegram.send_device(conn, link["caregiver_device"], f"⏰ {title}\n{text}\n\n{WEB}/family?link={link['id']}")
+        caregiver_mod.log(conn, link["id"], "alerted", title)
         n += 1
     conn.commit()
     return n
@@ -87,7 +101,7 @@ def _consent(fn, *a):
     try:
         return fn(*a)
     except caregiver_mod.ConsentError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("/api/caregiver/scopes")
@@ -113,10 +127,14 @@ def caregiver_accept(b: AcceptIn, request: Request, account: str = Depends(signe
     rate_limit(request, "invite", 20, 600)
     dev = account
     r = _consent(caregiver_mod.accept, conn, b.code, dev, b.name, b.relation)
-    l = caregiver_mod.get_link(conn, r["link_id"], dev)
-    msg = f"{l['caregiver_name']} ({l['relation'] or 'family'}) can now see: " + ", ".join(l["scopes"]) + ". You can stop this anytime in Dosely > Family."
-    push.send(conn, l["elder_device"], "Someone is looking after you", msg, "/family", f"linked-{l['id']}")
-    telegram.send_device(conn, l["elder_device"], "🤝 " + msg, role="self")
+    link = caregiver_mod.get_link(conn, r["link_id"], dev)
+    msg = (
+        f"{link['caregiver_name']} ({link['relation'] or 'family'}) can now see: "
+        + ", ".join(link["scopes"])
+        + ". You can stop this anytime in Dosely > Family."
+    )
+    push.send(conn, link["elder_device"], "Someone is looking after you", msg, "/family", f"linked-{link['id']}")
+    telegram.send_device(conn, link["elder_device"], "🤝 " + msg, role="self")
     return r
 
 
@@ -138,13 +156,13 @@ def caregiver_access(account: str = Depends(current_account)):
 
 @router.get("/api/caregiver/elder/{lid}")
 def caregiver_elder(lid: int, account: str = Depends(current_account)):
-    l = _consent(caregiver_mod.get_link, conn, lid, account)
+    link = _consent(caregiver_mod.get_link, conn, lid, account)
     # One "viewed" row per 10 minutes, so the elder's log stays readable while the page refreshes.
     last = conn.execute("SELECT MAX(at) FROM care_access WHERE link_id = ? AND action = 'viewed'", (lid,)).fetchone()[0]
-    if not last or datetime.now(timezone.utc) - datetime.fromisoformat(last) > timedelta(minutes=10):
-        caregiver_mod.log(conn, lid, "viewed", ", ".join(l["scopes"]))
+    if not last or datetime.now(UTC) - datetime.fromisoformat(last) > timedelta(minutes=10):
+        caregiver_mod.log(conn, lid, "viewed", ", ".join(link["scopes"]))
         conn.commit()
-    return caregiver_mod.dashboard(conn, l)
+    return caregiver_mod.dashboard(conn, link)
 
 
 class NudgeIn(BaseModel):
@@ -154,17 +172,23 @@ class NudgeIn(BaseModel):
 @router.post("/api/caregiver/elder/{lid}/nudge")
 def caregiver_nudge(lid: int, b: NudgeIn, account: str = Depends(current_account)):
     """A caregiver's reminder reaches the elder as a phone notification, on Telegram and in the Dadi chat."""
-    l = _consent(caregiver_mod.get_link, conn, lid, account)
-    recent = conn.execute("SELECT COUNT(*) FROM care_access WHERE link_id = ? AND action = 'nudged' AND at > ?",
-                          (lid, (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat())).fetchone()[0]
+    link = _consent(caregiver_mod.get_link, conn, lid, account)
+    recent = conn.execute(
+        "SELECT COUNT(*) FROM care_access WHERE link_id = ? AND action = 'nudged' AND at > ?",
+        (lid, (datetime.now(UTC) - timedelta(hours=1)).isoformat()),
+    ).fetchone()[0]
     if recent >= 5:
         raise HTTPException(429, "That's 5 reminders this hour. Try calling instead.")
     text = (b.text or "").strip()[:200] or "Please take your medicine and tick it in Dosely."
-    say = f"{l['caregiver_name']}: {text}"
-    pushed = push.send(conn, l["elder_device"], f"Message from {l['caregiver_name']}", text, "/dadi", f"nudge-{lid}")
-    tg = telegram.send_device(conn, l["elder_device"], f"💬 {say}", role="self", buttons=TG_BUTTONS)
-    conn.execute("INSERT INTO dadi_chat (device, member, role, text, kind, channel) VALUES (?,?,?,?,?,?)",
-                 (l["elder_device"], l["member"], "family", vault.seal(say, "dadi_chat", "text"), "nudge", "app"))
+    say = f"{link['caregiver_name']}: {text}"
+    pushed = push.send(
+        conn, link["elder_device"], f"Message from {link['caregiver_name']}", text, "/dadi", f"nudge-{lid}"
+    )
+    tg = telegram.send_device(conn, link["elder_device"], f"💬 {say}", role="self", buttons=TG_BUTTONS)
+    conn.execute(
+        "INSERT INTO dadi_chat (device, member, role, text, kind, channel) VALUES (?,?,?,?,?,?)",
+        (link["elder_device"], link["member"], "family", vault.seal(say, "dadi_chat", "text"), "nudge", "app"),
+    )
     caregiver_mod.log(conn, lid, "nudged", text)
     conn.commit()
     return {"phone": pushed, "telegram": tg, "in_app": True}

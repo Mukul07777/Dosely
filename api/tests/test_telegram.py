@@ -1,4 +1,5 @@
 """Everything WhatsApp does, on Telegram: '1' after a dose, strip photos, batch checks, reminders, recall alerts."""
+
 import os
 import tempfile
 from datetime import datetime, timedelta
@@ -6,12 +7,12 @@ from pathlib import Path
 
 os.environ.setdefault("KINCARE_DB", str(Path(tempfile.mkdtemp()) / "test.db"))
 
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+import pytest
+from fastapi.testclient import TestClient
 
-import care  # noqa: E402
-import main  # noqa: E402
-from testutil import auth_as  # noqa: E402
+import care
+import main
+from testutil import auth_as
 
 client = TestClient(main.app)
 FIX = Path(__file__).parent / "fixtures"
@@ -20,8 +21,12 @@ FIX = Path(__file__).parent / "fixtures"
 @pytest.fixture
 def sent(monkeypatch):
     out = []
-    monkeypatch.setattr(main.telegram, "send", lambda chat_id, text, buttons=None: out.append((chat_id, text, buttons)) or True)
-    monkeypatch.setattr(care, "SLOTS", [("morning", "00:00"), ("noon", "00:01"), ("night", "00:02")])  # every dose already due
+    monkeypatch.setattr(
+        main.telegram, "send", lambda chat_id, text, buttons=None: out.append((chat_id, text, buttons)) or True
+    )
+    monkeypatch.setattr(
+        care, "SLOTS", [("morning", "00:00"), ("noon", "00:01"), ("night", "00:02")]
+    )  # every dose already due
     return out
 
 
@@ -33,8 +38,11 @@ def linked(dev, chat_id, role="self"):
 def plan(dev, member="Me"):
     main.conn.execute("DELETE FROM plans WHERE device = ?", (dev,))
     start = (datetime.now().date() - timedelta(days=1)).isoformat()
-    client.post("/api/care/plans", headers=auth_as(dev), json={"member": member, "start_date": start,
-                                                                       "medicines": [{"name": "Telma 40", "morning": 1}]})
+    client.post(
+        "/api/care/plans",
+        headers=auth_as(dev),
+        json={"member": member, "start_date": start, "medicines": [{"name": "Telma 40", "morning": 1}]},
+    )
 
 
 def test_one_after_a_dose_ticks_it(sent):
@@ -78,7 +86,9 @@ def test_alert_device_goes_to_telegram(sent):
 def test_strip_photo_on_telegram_reads_and_checks_the_batch(sent, monkeypatch):
     linked("tg-photo", 505)
     monkeypatch.setattr(main.telegram, "download", lambda fid: (FIX / "strip_telma.png").read_bytes())
-    assert main.telegram.incoming_photo({"message": {"chat": {"id": 505}, "photo": [{"file_id": "s"}, {"file_id": "big"}]}}) == (505, "big")
+    assert main.telegram.incoming_photo(
+        {"message": {"chat": {"id": 505}, "photo": [{"file_id": "s"}, {"file_id": "big"}]}}
+    ) == (505, "big")
     main._tg_photo_task(505, "tg-photo", "big")  # what the background thread runs
     assert "batch" in sent[-1][1].lower() or "बैच" in sent[-1][1] or "Batch" in sent[-1][1]
     hist = client.get("/api/dadi/history", headers=auth_as("tg-photo")).json()

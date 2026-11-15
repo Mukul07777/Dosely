@@ -1,4 +1,5 @@
 """Account: phone login (one-time code), plan, billing (Stripe Checkout)."""
+
 import threading
 import time
 
@@ -9,8 +10,20 @@ import auth
 import entitlements
 import roles
 import sessions
-
-from core import _phone, conn, current_account, demo_mode, now, on_startup, optional_account, principal, rate_limit, require, session_token, signed_in_account
+from core import (
+    _phone,
+    conn,
+    current_account,
+    demo_mode,
+    now,
+    on_startup,
+    optional_account,
+    principal,
+    rate_limit,
+    require,
+    session_token,
+    signed_in_account,
+)
 
 router = APIRouter()
 
@@ -26,6 +39,7 @@ def _active_plan(dev: str) -> dict | None:
 
 # ---- phone login (one-time code on WhatsApp) ----
 
+
 class OtpStart(BaseModel):
     phone: str
 
@@ -38,19 +52,35 @@ class OtpVerify(BaseModel):
 def _secure(request: Request) -> bool:
     import os
 
-    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" or os.environ.get("COOKIE_SECURE") == "1"
+    return (
+        request.url.scheme == "https"
+        or request.headers.get("x-forwarded-proto") == "https"
+        or os.environ.get("COOKIE_SECURE") == "1"
+    )
 
 
 def _give_session(request: Request, response: Response, account: str, kind: str) -> None:
-    """New session in an HttpOnly cookie: page scripts can't read it, other sites can't send it on a POST (SameSite=Lax)."""
+    """New session in an HttpOnly cookie: page scripts can't read it, other sites can't send it on a POST
+    (SameSite=Lax)."""
     token = sessions.create(conn, account, kind, request.headers.get("user-agent"))
-    response.set_cookie(sessions.COOKIE, token, max_age=int(sessions.LIFETIME[kind].total_seconds()), httponly=True,
-                        secure=_secure(request), samesite="lax", path="/")
+    response.set_cookie(
+        sessions.COOKIE,
+        token,
+        max_age=int(sessions.LIFETIME[kind].total_seconds()),
+        httponly=True,
+        secure=_secure(request),
+        samesite="lax",
+        path="/",
+    )
 
 
 def _info(s: dict | None) -> dict:
     p = auth.phone_of(conn, s["account"]) if s else None
-    return {"session": bool(s), "signed_in": bool(s) and s["kind"] == "user", "masked": f"{p[:3]} ••••• {p[-4:]}" if p else None}
+    return {
+        "session": bool(s),
+        "signed_in": bool(s) and s["kind"] == "user",
+        "masked": f"{p[:3]} ••••• {p[-4:]}" if p else None,
+    }
 
 
 @router.post("/api/session")
@@ -85,7 +115,7 @@ def auth_start(b: OtpStart, request: Request, account: str = Depends(current_acc
     try:
         code = auth.start(conn, phone)
     except auth.AuthError as e:
-        raise HTTPException(429, str(e))
+        raise HTTPException(429, str(e)) from e
     if notify.whatsapp_ready():
         status, _ = notify.send_whatsapp(phone, auth.otp_text(code))
         if status not in ("sent",):
@@ -96,13 +126,14 @@ def auth_start(b: OtpStart, request: Request, account: str = Depends(current_acc
 
 @router.post("/api/auth/verify")
 def auth_verify(b: OtpVerify, request: Request, response: Response, account: str = Depends(current_account)):
-    """Right code: the guest's data moves into the phone's account, and the guest session is replaced by a signed-in one."""
+    """Right code: the guest's data moves into the phone's account, and the guest session is replaced by a signed-in
+    one."""
     rate_limit(request, "otp-verify", 10, 600)
     phone = _phone(b.phone)
     try:
         auth.verify(conn, phone, b.code)
     except auth.AuthError as e:
-        raise HTTPException(401, str(e))
+        raise HTTPException(401, str(e)) from e
     r = auth.login(conn, phone, account)
     entitlements.seen(conn, r["device"])
     sessions.revoke(conn, session_token(request))  # the old guest token stops working (no session fixation)
@@ -140,11 +171,16 @@ def auth_logout_others(request: Request, account: str = Depends(current_account)
 def auth_me(request: Request, account: str = Depends(current_account)):
     p = auth.phone_of(conn, account)
     held = principal(request)["roles"]
-    return {"phone": p, "masked": f"{p[:3]} ••••• {p[-4:]}" if p else None,
-            "roles": sorted(held), "permissions": roles.permissions(held)}
+    return {
+        "phone": p,
+        "masked": f"{p[:3]} ••••• {p[-4:]}" if p else None,
+        "roles": sorted(held),
+        "permissions": roles.permissions(held),
+    }
 
 
 # ---- roles: request one (pharmacist, regulator), an admin approves ----
+
 
 class RoleIn(BaseModel):
     role: str
@@ -190,7 +226,7 @@ def admin_role_decide(gid: int, decision: str, who: dict = Depends(require("role
     try:
         r = roles.decide(conn, gid, decision, who["actor"])
     except PermissionError as e:
-        raise HTTPException(403, str(e))
+        raise HTTPException(403, str(e)) from e
     if not r:
         raise HTTPException(409, "That request is not in a state you can do this to")
     return r
@@ -213,6 +249,7 @@ def admin_role_grant(b: GrantIn, who: dict = Depends(require("roles.decide"))):
 @router.get("/api/admin/audit")
 def admin_audit(limit: int = 100, _: dict = Depends(require("audit.view"))):
     """Account ids never leave the server, even to admins: each one is shown as that person's masked phone."""
+
     def who(v: str | None) -> str | None:
         if not v or not v.startswith("acct_"):
             return v
@@ -235,9 +272,14 @@ def account_entitlement(account: str = Depends(current_account)):
 def billing_plans(account: str | None = Depends(optional_account)):
     import billing
 
-    return {"ready": billing.ready(), "test_mode": billing.test_mode(), "currency": billing.CURRENCY,
-            "plans": [{"id": k, **v} for k, v in billing.PLANS.items()], "free": billing.FREE,
-            "active": _active_plan(account) if account else None}
+    return {
+        "ready": billing.ready(),
+        "test_mode": billing.test_mode(),
+        "currency": billing.CURRENCY,
+        "plans": [{"id": k, **v} for k, v in billing.PLANS.items()],
+        "free": billing.FREE,
+        "active": _active_plan(account) if account else None,
+    }
 
 
 @router.post("/api/billing/checkout")
@@ -252,16 +294,23 @@ def billing_checkout(body: CheckoutIn, account: str = Depends(current_account)):
     try:
         sid, url = billing.create_session(body.plan, dev)
     except Exception as e:
-        raise HTTPException(502, f"Stripe error: {getattr(e, 'user_message', None) or e}")
-    conn.execute("INSERT INTO payments (device, plan, session_id, amount, currency) VALUES (?, ?, ?, ?, ?)",
-                 (dev, body.plan, sid, billing.PLANS[body.plan]["amount"], billing.CURRENCY))
+        raise HTTPException(502, f"Stripe error: {getattr(e, 'user_message', None) or e}") from e
+    conn.execute(
+        "INSERT INTO payments (device, plan, session_id, amount, currency) VALUES (?, ?, ?, ?, ?)",
+        (dev, body.plan, sid, billing.PLANS[body.plan]["amount"], billing.CURRENCY),
+    )
     conn.commit()
     return {"url": url}
 
 
 def _mark_paid(session_id: str, email: str | None):
-    conn.execute("UPDATE payments SET status = 'paid', paid_at = COALESCE(paid_at, ?), email = COALESCE(?, email) WHERE session_id = ?",
-                 (now(), email, session_id))
+    conn.execute(
+        (
+            "UPDATE payments SET status = 'paid', paid_at = COALESCE(paid_at, "
+            "?), email = COALESCE(?, email) WHERE session_id = ?"
+        ),
+        (now(), email, session_id),
+    )
     conn.commit()
 
 
@@ -287,14 +336,18 @@ async def billing_webhook(request: Request):
     try:
         ev = billing.parse_webhook(await request.body(), request.headers.get("stripe-signature", ""))
     except Exception:
-        raise HTTPException(400, "Bad signature")
-    if ev["type"] == "checkout.session.completed" and ev["data"]["object"].get("payment_status") in ("paid", "no_payment_required"):
+        raise HTTPException(400, "Bad signature") from None
+    if ev["type"] == "checkout.session.completed" and ev["data"]["object"].get("payment_status") in (
+        "paid",
+        "no_payment_required",
+    ):
         o = ev["data"]["object"]
         _mark_paid(o["id"], (o.get("customer_details") or {}).get("email"))
     return {"ok": True}
 
 
 # ---- your data (DPDP Act 2023: right to access and right to erasure) ----
+
 
 @router.get("/api/account/export")
 def account_export(account: str = Depends(current_account)):

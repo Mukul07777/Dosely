@@ -8,6 +8,7 @@ One run:
   5. each affected person gets a WhatsApp message and a voice call
 Every step is written to `events`, which the live screen streams.
 """
+
 import json
 import threading
 import time
@@ -33,30 +34,64 @@ class Run:
     def emit(self, type_: str, payload: dict):
         payload = {**payload, "t": round(time.time() - self.t0, 2)}
         with _lock:
-            self.conn.execute("INSERT INTO events (run_id, type, payload) VALUES (?,?,?)", (self.id, type_, json.dumps(payload, default=str)))
+            self.conn.execute(
+                "INSERT INTO events (run_id, type, payload) VALUES (?,?,?)",
+                (self.id, type_, json.dumps(payload, default=str)),
+            )
             self.conn.commit()
 
 
 def contacts(conn, demo: dict | None) -> list[dict]:
     people = [
-        {"kind": "watchlist", "name": r["name"], "phone": r["phone"], "language": r["language"] or "hi",
-         "batch": r["batch"], "brand": r["brand"], "maker": r["maker"], "where": "Personal watchlist", "city": None}
+        {
+            "kind": "watchlist",
+            "name": r["name"],
+            "phone": r["phone"],
+            "language": r["language"] or "hi",
+            "batch": r["batch"],
+            "brand": r["brand"],
+            "maker": r["maker"],
+            "where": "Personal watchlist",
+            "city": None,
+        }
         for r in conn.execute("SELECT * FROM watchlist WHERE phone IS NOT NULL AND phone != ''")
     ]
     people += [
-        {"kind": "sale", "name": r["customer"], "phone": r["phone"], "language": r["language"] or "hi",
-         "batch": r["batch"], "brand": r["product"], "maker": None, "where": r["pharmacy"], "city": r["city"]}
+        {
+            "kind": "sale",
+            "name": r["customer"],
+            "phone": r["phone"],
+            "language": r["language"] or "hi",
+            "batch": r["batch"],
+            "brand": r["product"],
+            "maker": None,
+            "where": r["pharmacy"],
+            "city": r["city"],
+        }
         for r in conn.execute("SELECT * FROM sales WHERE phone IS NOT NULL AND phone != ''")
     ]
     if demo and demo.get("phone"):
-        people.append({"kind": "demo", "name": demo.get("name"), "phone": demo["phone"], "language": demo.get("language", "hi"),
-                       "batch": demo["batch"], "brand": demo.get("brand"), "maker": None, "where": "Live demo", "city": demo.get("city")})
+        people.append(
+            {
+                "kind": "demo",
+                "name": demo.get("name"),
+                "phone": demo["phone"],
+                "language": demo.get("language", "hi"),
+                "batch": demo["batch"],
+                "brand": demo.get("brand"),
+                "maker": None,
+                "where": "Live demo",
+                "city": demo.get("city"),
+            }
+        )
     return people
 
 
 def execute(run: Run, scope: str, demo: dict | None):
     conn = run.conn
-    run.emit("run_started", {"mode": agents.mode(), "sources": [{"id": s["id"], "name": s["name"]} for s in agents.SOURCES]})
+    run.emit(
+        "run_started", {"mode": agents.mode(), "sources": [{"id": s["id"], "name": s["name"]} for s in agents.SOURCES]}
+    )
 
     # 1. Fan out: one agent per source, all at once.
     def one(src):
@@ -97,8 +132,19 @@ def execute(run: Run, scope: str, demo: dict | None):
         if found:
             hits.append((p, found[0]))
             a = found[0]["alert"]
-            run.emit("match", {"who": p["name"], "where": p["where"], "city": p["city"], "batch": p["batch"], "kind": p["kind"],
-                               "medicine": a.get("brand") or a["product_name"], "category": a["category"], "level": found[0]["score"]["level"]})
+            run.emit(
+                "match",
+                {
+                    "who": p["name"],
+                    "where": p["where"],
+                    "city": p["city"],
+                    "batch": p["batch"],
+                    "kind": p["kind"],
+                    "medicine": a.get("brand") or a["product_name"],
+                    "category": a["category"],
+                    "level": found[0]["score"]["level"],
+                },
+            )
     run.emit("matching_done", {"checked": len(people), "affected": len(hits)})
 
     # 5. Notify.
@@ -106,27 +152,51 @@ def execute(run: Run, scope: str, demo: dict | None):
         a = m["alert"]
         lang = p["language"] if p["language"] in ("hi", "en") else "hi"
         with _lock:
-            token = checkin.create(conn, name=p["name"], phone=p["phone"], language=lang, batch=p["batch"], alert_id=a["id"])
+            token = checkin.create(
+                conn, name=p["name"], phone=p["phone"], language=lang, batch=p["batch"], alert_id=a["id"]
+            )
             conn.commit()
         text = notify.whatsapp_text(a, p["batch"], p["name"], lang, checkin.link(token))
         script = notify.voice_script(a, p["batch"], p["name"], lang)
-        for channel, sender, body in (("whatsapp", lambda: notify.send_whatsapp(p["phone"], text), text),
-                                      ("voice", lambda: notify.place_call(p["phone"], script, lang), script)):
+        for channel, sender, body in (
+            ("whatsapp", lambda p=p, text=text: notify.send_whatsapp(p["phone"], text), text),
+            ("voice", lambda p=p, script=script, lang=lang: notify.place_call(p["phone"], script, lang), script),
+        ):
             try:
                 status, pid = sender()
             except Exception as e:
                 status, pid = "failed", str(e)[:200]
             with _lock:
                 conn.execute(
-                    "INSERT INTO notifications (run_id, channel, name, phone, language, batch, alert_id, message, status, provider_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        "INSERT INTO notifications (run_id, channel, name, phone, language, batch, "
+                        "alert_id, message, status, provider_id) VALUES (?,?,?,?,?,?,?,?,?,?)"
+                    ),
                     (run.id, channel, p["name"], p["phone"], lang, p["batch"], a["id"], body, status, pid),
                 )
                 conn.commit()
-            run.emit("notified", {"channel": channel, "who": p["name"], "phone": _mask(p["phone"]), "language": lang,
-                                  "status": status, "message": body, "checkin": checkin.link(token)})
+            run.emit(
+                "notified",
+                {
+                    "channel": channel,
+                    "who": p["name"],
+                    "phone": _mask(p["phone"]),
+                    "language": lang,
+                    "status": status,
+                    "message": body,
+                    "checkin": checkin.link(token),
+                },
+            )
 
-    run.emit("run_complete", {"seconds": round(time.time() - run.t0, 1), "affected": len(hits),
-                              "notifications": len(hits) * 2, "twilio": notify.twilio_ready()})
+    run.emit(
+        "run_complete",
+        {
+            "seconds": round(time.time() - run.t0, 1),
+            "affected": len(hits),
+            "notifications": len(hits) * 2,
+            "twilio": notify.twilio_ready(),
+        },
+    )
 
 
 def _mask(phone: str) -> str:

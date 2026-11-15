@@ -4,6 +4,7 @@ Everything Dosely stores about a person hangs off their device id (or the accoun
 directly in every table with a `device` column, or one step away (a plan's medicines and doses, a caregiver link's
 access log, the phone number used to log in).
 """
+
 import sqlite3
 
 import auth
@@ -23,11 +24,19 @@ def _rows(conn, sql: str, args=()) -> list[dict]:
 
 
 def _med_ids(conn, dev: str) -> list[int]:
-    return [r[0] for r in conn.execute("SELECT m.id FROM plan_meds m JOIN plans p ON p.id = m.plan_id WHERE p.device = ?", (dev,))]
+    return [
+        r[0]
+        for r in conn.execute(
+            "SELECT m.id FROM plan_meds m JOIN plans p ON p.id = m.plan_id WHERE p.device = ?", (dev,)
+        )
+    ]
 
 
 def _link_ids(conn, dev: str) -> list[int]:
-    return [r[0] for r in conn.execute("SELECT id FROM care_links WHERE elder_device = ? OR caregiver_device = ?", (dev, dev))]
+    return [
+        r[0]
+        for r in conn.execute("SELECT id FROM care_links WHERE elder_device = ? OR caregiver_device = ?", (dev, dev))
+    ]
 
 
 def _in(ids: list) -> tuple[str, list]:
@@ -47,18 +56,23 @@ def export(conn: sqlite3.Connection, dev: str) -> dict:
     q, a = _in(meds)
     out["plan_medicines"] = _rows(conn, f"SELECT * FROM plan_meds WHERE id IN ({q})", a)
     out["doses_taken"] = _rows(conn, f"SELECT * FROM doses WHERE med_id IN ({q})", a)
-    out["caregiver_links"] = _rows(conn, "SELECT * FROM care_links WHERE elder_device = ? OR caregiver_device = ?", (dev, dev))
+    out["caregiver_links"] = _rows(
+        conn, "SELECT * FROM care_links WHERE elder_device = ? OR caregiver_device = ?", (dev, dev)
+    )
     q, a = _in(_link_ids(conn, dev))
     out["caregiver_access_log"] = _rows(conn, f"SELECT * FROM care_access WHERE link_id IN ({q})", a)
     phone = auth.phone_of(conn, dev)
     if phone:
         out["login"] = {"phone": phone}
-        out["messages_sent_to_your_phone"] = _rows(conn, "SELECT channel, message, status, at FROM notifications WHERE phone = ?", (phone,))
+        out["messages_sent_to_your_phone"] = _rows(
+            conn, "SELECT channel, message, status, at FROM notifications WHERE phone = ?", (phone,)
+        )
     return {k: v for k, v in out.items() if v}
 
 
 def erase(conn: sqlite3.Connection, dev: str) -> dict:
-    """Delete everything held about this device. Caregiver links end for both sides; the other person keeps nothing of yours."""
+    """Delete everything held about this device. Caregiver links end for both sides; the other person keeps nothing of
+    yours."""
     counts: dict = {}
 
     def run(label: str, sql: str, args=()):
@@ -89,7 +103,7 @@ def erase(conn: sqlite3.Connection, dev: str) -> dict:
 
 # Raw data kept only as long as it is useful (DPDP: storage limitation).
 RETENTION = [
-    ("vitals_live", "at", 7),   # 2-second samples; the 5-minute medians stay in vitals
+    ("vitals_live", "at", 7),  # 2-second samples; the 5-minute medians stay in vitals
     ("dadi_chat", "at", 180),
     ("otps", "created_at", 1),
     ("care_access", "at", 365),

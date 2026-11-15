@@ -4,6 +4,7 @@ Two kinds of caller reach /api/circle/p/{code}/...:
 - the elder (owner), with their normal Dosely session;
 - a family member or caretaker, with the X-Circle-Token they got from /api/circle/unlock (passcode).
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
@@ -22,7 +23,7 @@ def _err(fn, *a, **k):
     try:
         return fn(*a, **k)
     except circle.CircleError as e:
-        raise HTTPException(e.status, str(e))
+        raise HTTPException(e.status, str(e)) from e
 
 
 def _owned(code: str, account: str) -> dict:
@@ -62,6 +63,7 @@ def _public(prof: dict) -> dict:
 
 # ---------- the elder: create, settings, members, approvals ----------
 
+
 class ProfileIn(BaseModel):
     member: str = "Me"
     elder_name: str
@@ -82,7 +84,9 @@ class ProfileUpdate(BaseModel):
 def circle_create(b: ProfileIn, account: str = Depends(current_account)):
     """The elder creates their care profile and chooses the passcode to share."""
     member = circle.clean(b.member, 20) or "Me"
-    prof = _err(circle.create_profile, conn, account, member, b.elder_name, b.elder_email, b.passcode, b.approve_changes)
+    prof = _err(
+        circle.create_profile, conn, account, member, b.elder_name, b.elder_email, b.passcode, b.approve_changes
+    )
     return _public(prof)
 
 
@@ -91,15 +95,32 @@ def circle_mine(account: str = Depends(current_account)):
     out = []
     for r in conn.execute("SELECT * FROM circle_profiles WHERE owner_device = ? ORDER BY id", (account,)).fetchall():
         p = dict(r)
-        out.append({**_public(p), "members": circle.members(conn, p["id"]), "pending": circle.pending_changes(conn, p["id"]),
-                    "activity": circle.activity(conn, p["id"], 20)})
+        out.append(
+            {
+                **_public(p),
+                "members": circle.members(conn, p["id"]),
+                "pending": circle.pending_changes(conn, p["id"]),
+                "activity": circle.activity(conn, p["id"], 20),
+            }
+        )
     return out
 
 
 @router.put("/api/circle/profiles/{code}")
 def circle_update(code: str, b: ProfileUpdate, account: str = Depends(current_account)):
     prof = _owned(code, account)
-    return _public(_err(circle.update_profile, conn, prof, b.elder_name, b.elder_email, b.approve_changes, b.passcode, b.sign_out_all))
+    return _public(
+        _err(
+            circle.update_profile,
+            conn,
+            prof,
+            b.elder_name,
+            b.elder_email,
+            b.approve_changes,
+            b.passcode,
+            b.sign_out_all,
+        )
+    )
 
 
 class MemberUpdate(BaseModel):
@@ -109,11 +130,15 @@ class MemberUpdate(BaseModel):
 @router.put("/api/circle/profiles/{code}/members/{mid}")
 def circle_member_update(code: str, mid: int, b: MemberUpdate, account: str = Depends(current_account)):
     prof = _owned(code, account)
-    updated = conn.execute("UPDATE circle_members SET can_edit = ? WHERE id = ? AND profile_id = ? AND revoked_at IS NULL",
-                           (int(b.can_edit), mid, prof["id"])).rowcount
+    updated = conn.execute(
+        "UPDATE circle_members SET can_edit = ? WHERE id = ? AND profile_id = ? AND revoked_at IS NULL",
+        (int(b.can_edit), mid, prof["id"]),
+    ).rowcount
     if not updated:
         raise HTTPException(404, "Member not found")
-    circle.log(conn, prof["id"], prof["elder_name"], "permission", f"member {mid}: {'can edit' if b.can_edit else 'view only'}")
+    circle.log(
+        conn, prof["id"], prof["elder_name"], "permission", f"member {mid}: {'can edit' if b.can_edit else 'view only'}"
+    )
     conn.commit()
     return {"ok": True}
 
@@ -121,8 +146,9 @@ def circle_member_update(code: str, mid: int, b: MemberUpdate, account: str = De
 @router.delete("/api/circle/profiles/{code}/members/{mid}")
 def circle_member_remove(code: str, mid: int, account: str = Depends(current_account)):
     prof = _owned(code, account)
-    r = conn.execute("SELECT name FROM circle_members WHERE id = ? AND profile_id = ? AND revoked_at IS NULL",
-                     (mid, prof["id"])).fetchone()
+    r = conn.execute(
+        "SELECT name FROM circle_members WHERE id = ? AND profile_id = ? AND revoked_at IS NULL", (mid, prof["id"])
+    ).fetchone()
     if not r:
         raise HTTPException(404, "Member not found")
     conn.execute("UPDATE circle_members SET revoked_at = ? WHERE id = ?", (circle._utc(), mid))
@@ -141,6 +167,7 @@ def circle_decide(code: str, cid: int, b: DecideIn, account: str = Depends(curre
 
 
 # ---------- family / caretaker: unlock with the passcode ----------
+
 
 class UnlockIn(BaseModel):
     code: str
@@ -168,12 +195,16 @@ def circle_leave(code: str, request: Request):
 
 # ---------- shared profile: everyone in the circle ----------
 
+
 @router.get("/api/circle/p/{code}")
 def circle_view(code: str, request: Request):
     """Everything the circle shares, in one call: schedule, today's state, adherence, visits, activity."""
     prof, m = actor(code, request)
-    you = ({"name": m["name"], "role": m["role"], "can_edit": bool(m["can_edit"])} if m
-           else {"name": prof["elder_name"], "role": "elder", "can_edit": True})
+    you = (
+        {"name": m["name"], "role": m["role"], "can_edit": bool(m["can_edit"])}
+        if m
+        else {"name": prof["elder_name"], "role": "elder", "can_edit": True}
+    )
     return {
         "profile": {k: prof[k] for k in ("code", "elder_name", "approve_changes")},
         "you": you,
@@ -181,7 +212,9 @@ def circle_view(code: str, request: Request):
         "today": circle.today(conn, prof),
         "routines": circle.routines(conn, prof),
         "adherence": circle.adherence(conn, prof, 30),
-        "appointments": [{**a, "gcal": circle.gcal_url(a, prof["elder_name"])} for a in circle.appointments(conn, prof["id"])],
+        "appointments": [
+            {**a, "gcal": circle.gcal_url(a, prof["elder_name"])} for a in circle.appointments(conn, prof["id"])
+        ],
         "pending": circle.pending_changes(conn, prof["id"]),
         "circle": [{"name": x["name"], "role": x["role"]} for x in circle.members(conn, prof["id"])],
         "activity": circle.activity(conn, prof["id"], 15),
@@ -271,6 +304,7 @@ def circle_appt_delete(code: str, aid: int, request: Request):
 
 # ---------- daily healthcare routines ----------
 
+
 class RoutineIn(BaseModel):
     title: str
     time: str  # HH:MM
@@ -309,7 +343,11 @@ def circle_summary(code: str, request: Request):
     lines = [f"{prof['elder_name']}: medicines and adherence (Dosely)", ""]
     for med in circle.meds(conn, prof):
         t = "only when needed" if med["as_needed"] else ", ".join(s for s in ("morning", "noon", "night") if med[s])
-        lines.append(f"- {med['name']} {med['strength'] or ''} | {t}{' | ' + med['food'] if med['food'] else ''}".replace("  ", " "))
+        lines.append(
+            f"- {med['name']} {med['strength'] or ''} | {t}{' | ' + med['food'] if med['food'] else ''}".replace(
+                "  ", " "
+            )
+        )
     week, month = (a[k] if a[k] is not None else "-" for k in ("pct_7", "pct_30"))
     lines += ["", f"Doses taken: {week}% last 7 days, {month}% last 30 days"]
     for med in a["medicines"]:

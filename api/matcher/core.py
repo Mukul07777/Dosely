@@ -3,6 +3,7 @@
 Fuzziness is only ever applied to names, never to batch numbers, so a
 near-miss batch can never produce a false alarm.
 """
+
 import re
 
 from rapidfuzz import fuzz
@@ -10,16 +11,20 @@ from rapidfuzz import fuzz
 _STRIP = re.compile(r"[\s\-/.\\_]")
 # Strip only legal forms. Words like "Pharma" or "Labs" distinguish companies
 # ("Apple Formulations" vs "Apple Remedies"), so they stay.
-_MAKER_NOISE = re.compile(r"^\s*m/s\.?|\b(pvt|private|ltd|limited|inc|co|company|llp|corp|corporation|as labelled)\b|[().,&]")
+_MAKER_NOISE = re.compile(
+    r"^\s*m/s\.?|\b(pvt|private|ltd|limited|inc|co|company|llp|corp|corporation|as labelled)\b|[().,&]"
+)
 
 _UNKNOWN_MAKER = re.compile(r"under investigation|not known|unknown|^-$|^na$", re.I)
 # Industry words most makers share. They keep different firms apart in normalise_maker, but they must not carry a
 # fuzzy match: "Biodeal Pharmaceuticals" vs "Sakthi Ayurveda Pharmaceuticals" scored 88 on them alone.
 _GENERIC = re.compile(
-    r"\b(pharmaceuticals?|pharma|laborator(y|ies)|labs?|health ?care|life ?sciences?|sciences?|remedies|formulations?|"
-    r"drugs?|bio ?tech|biotech|medicare|industries|international|india|products|mfg|manufactured|marketed|by|for|and|the)\b|[^a-z0-9 ]"
+    r"\b(pharmaceuticals?|pharma|laborator(y|ies)|labs?|health ?care|life ?sciences?|sciences?|remedies|"
+    r"formulations?|drugs?|bio ?tech|biotech|medicare|industries|international|india|products|mfg|"
+    r"manufactured|marketed|by|for|and|the)\b|[^a-z0-9 ]"
     # long industry words glued on by OCR ("hemalaboratories", "mmghealthcare"); short ones like "lab" stay word-bound
-    r"|pharmaceuticals?|laborator(y|ies)|healthcare|lifesciences?|formulations?|remedies|medicare")
+    r"|pharmaceuticals?|laborator(y|ies)|healthcare|lifesciences?|formulations?|remedies|medicare"
+)
 
 MAKER_THRESHOLD = 80
 BRAND_THRESHOLD = 75
@@ -73,8 +78,12 @@ def score(alert: dict, batch: str, maker: str | None, brand: str | None) -> dict
     maker_known = alert_maker and not _UNKNOWN_MAKER.search(alert_maker)
     maker_score = _maker_score(alert_maker, maker) if maker and maker_known else None
     brand_score = (
-        max(_name_score(alert.get("brand") or "", brand, str.lower), _name_score(alert["product_name"], brand, str.lower))
-        if brand else None
+        max(
+            _name_score(alert.get("brand") or "", brand, str.lower),
+            _name_score(alert["product_name"], brand, str.lower),
+        )
+        if brand
+        else None
     )
 
     if not exact:

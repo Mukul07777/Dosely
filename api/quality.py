@@ -8,12 +8,13 @@ Every probe goes through the same path as /api/check: candidate lookup by normal
   * wrong maker- right batch, a different company: still shown (the batch is on the list) but never "strong"
 Precision is the number that matters to a patient: a false alarm makes someone stop a medicine they need.
 """
+
 import random
 import re
 import statistics
 import string
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from matcher import match, normalise_batch
 
@@ -28,7 +29,7 @@ def _variants(b: str, rnd: random.Random) -> list[str]:
 def _mutate(b: str, rnd: random.Random) -> str:
     i = rnd.randrange(len(b))
     pool = string.digits if b[i].isdigit() else string.ascii_uppercase
-    return b[:i] + rnd.choice([c for c in pool if c != b[i]]) + b[i + 1:]
+    return b[:i] + rnd.choice([c for c in pool if c != b[i]]) + b[i + 1 :]
 
 
 def _clean(rnd: random.Random) -> str:
@@ -39,8 +40,13 @@ def _clean(rnd: random.Random) -> str:
 def measure(conn, lookup: Callable[[str], list[dict]], n: int = 400, seed: int = 7) -> dict:
     rnd = random.Random(seed)
     known = {r[0] for r in conn.execute("SELECT DISTINCT batch_norm FROM alerts")}
-    rows = [dict(r) for r in conn.execute(
-        "SELECT * FROM alerts WHERE length(batch_norm) >= 4 AND manufacturer IS NOT NULL AND manufacturer != '' ORDER BY id")]
+    rows = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT * FROM alerts WHERE length(batch_norm) >= 4 AND "
+            "manufacturer IS NOT NULL AND manufacturer != '' ORDER BY id"
+        )
+    ]
     sample = rnd.sample(rows, min(n, len(rows)))
     timings: list[float] = []
 
@@ -85,13 +91,19 @@ def measure(conn, lookup: Callable[[str], list[dict]], n: int = 400, seed: int =
             continue
         wrong_n += 1
         res = [m for m in check(a["batch_no"], other) if m["alert"]["id"] == a["id"]]
-        wrong_strong += bool(res and res[0]["score"]["level"] == "strong" and (res[0]["score"]["maker"] or 0) >= 80
-                             and other.split()[0].lower() != a["manufacturer"].split()[0].lower())
+        wrong_strong += bool(
+            res
+            and res[0]["score"]["level"] == "strong"
+            and (res[0]["score"]["maker"] or 0) >= 80
+            and other.split()[0].lower() != a["manufacturer"].split()[0].lower()
+        )
 
     # Same maker, written the way a strip, a bill or OCR writes it: must still be recognised as that maker.
     def respell(m: str) -> str:
         core = re.sub(r"(?i)\b(pvt\.?|private|ltd\.?|limited|llp|m/s\.?)", " ", m)
-        return rnd.choice([m.upper(), " ".join(core.split()), "M/s " + m, core.replace(" ", "", 1).strip(), m.lower() + " ltd"])
+        return rnd.choice(
+            [m.upper(), " ".join(core.split()), "M/s " + m, core.replace(" ", "", 1).strip(), m.lower() + " ltd"]
+        )
 
     right_strong = right_n = 0
     for a in sample:

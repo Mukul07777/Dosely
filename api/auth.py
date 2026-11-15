@@ -6,12 +6,13 @@ logs in adopts that id, and anything it had created before is merged in. So a fa
 Codes: 6 digits, stored hashed, 10 minutes, 5 tries, at most 3 sends per number per 10 minutes.
 Without a WhatsApp provider configured (local demo), the code is returned in the response and the UI says so.
 """
+
 import hashlib
 import hmac
 import os
 import secrets
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -42,7 +43,7 @@ class AuthError(Exception):
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _hash(phone: str, code: str) -> str:
@@ -57,8 +58,10 @@ def start(conn: sqlite3.Connection, phone: str) -> str:
         raise AuthError("Too many codes sent to this number. Try again in 10 minutes.")
     code = f"{secrets.randbelow(10**6):06d}"
     conn.execute("UPDATE otps SET used = 1 WHERE phone = ? AND used = 0", (phone,))  # only the newest code works
-    conn.execute("INSERT INTO otps (phone, code_hash, expires_at, created_at) VALUES (?,?,?,?)",
-                 (phone, _hash(phone, code), (_now() + TTL).isoformat(), _now().isoformat()))
+    conn.execute(
+        "INSERT INTO otps (phone, code_hash, expires_at, created_at) VALUES (?,?,?,?)",
+        (phone, _hash(phone, code), (_now() + TTL).isoformat(), _now().isoformat()),
+    )
     conn.commit()
     return code
 
@@ -75,7 +78,11 @@ def verify(conn: sqlite3.Connection, phone: str, code: str) -> None:
     if not hmac.compare_digest(r["code_hash"], _hash(phone, code.strip())):
         conn.commit()
         left = MAX_TRIES - r["attempts"] - 1
-        raise AuthError(f"Wrong code. {left} {'try' if left == 1 else 'tries'} left." if left else "Too many wrong tries. Ask for a new code.")
+        raise AuthError(
+            f"Wrong code. {left} {'try' if left == 1 else 'tries'} left."
+            if left
+            else "Too many wrong tries. Ask for a new code."
+        )
     conn.execute("UPDATE otps SET used = 1 WHERE id = ?", (r["id"],))
     conn.commit()
 
@@ -110,7 +117,9 @@ def login(conn: sqlite3.Connection, phone: str, current_device: str) -> dict:
     """After a verified code: the account device id this phone should use from now on."""
     u = conn.execute("SELECT device FROM users WHERE phone = ?", (phone,)).fetchone()
     if not u:
-        conn.execute("INSERT INTO users (phone, device, created_at) VALUES (?,?,?)", (phone, current_device, _now().isoformat()))
+        conn.execute(
+            "INSERT INTO users (phone, device, created_at) VALUES (?,?,?)", (phone, current_device, _now().isoformat())
+        )
         conn.commit()
         return {"device": current_device, "new": True, "merged": 0}
     return {"device": u["device"], "new": False, "merged": merge(conn, current_device, u["device"])}

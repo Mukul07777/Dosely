@@ -4,6 +4,7 @@ Provider order: Resend (RESEND_API_KEY, one HTTPS call, free tier 3,000/month) -
 e.g. Gmail with an app password, Brevo, SendGrid SMTP) -> "outbox": the email is only recorded, so a laptop demo
 shows exactly what would have been sent. Every email is logged in `emails`; the body is encrypted at rest (vault).
 """
+
 import html
 import os
 import smtplib
@@ -44,16 +45,21 @@ def provider() -> str:
 def _html(subject: str, text: str) -> str:
     """Large type and high contrast: many readers are elders on a phone."""
     body = "<br>".join(html.escape(line) for line in text.splitlines())
-    return (f"<div style=\"font-family:Arial,sans-serif;font-size:18px;line-height:1.5;color:#111;max-width:560px\">"
-            f"<h2 style=\"font-size:22px;margin:0 0 12px\">{html.escape(subject)}</h2><p>{body}</p>"
-            f"<p style=\"font-size:13px;color:#555;margin-top:24px\">Sent by Dosely. You get this because you are part of "
-            f"this person's care circle. Ask them to remove you if you no longer help with their care.</p></div>")
+    return (
+        f'<div style="font-family:Arial,sans-serif;font-size:18px;line-height:1.5;color:#111;max-width:560px">'
+        f'<h2 style="font-size:22px;margin:0 0 12px">{html.escape(subject)}</h2><p>{body}</p>'
+        f'<p style="font-size:13px;color:#555;margin-top:24px">Sent by Dosely. You get this because you are part of '
+        f"this person's care circle. Ask them to remove you if you no longer help with their care.</p></div>"
+    )
 
 
 def _resend(to: str, subject: str, text: str) -> str:
-    r = requests.post("https://api.resend.com/emails", timeout=20,
-                      headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY']}"},
-                      json={"from": FROM(), "to": [to], "subject": subject, "text": text, "html": _html(subject, text)})
+    r = requests.post(
+        "https://api.resend.com/emails",
+        timeout=20,
+        headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY']}"},
+        json={"from": FROM(), "to": [to], "subject": subject, "text": text, "html": _html(subject, text)},
+    )
     r.raise_for_status()
     return r.json().get("id", "")
 
@@ -97,6 +103,11 @@ def send(conn, to: str, subject: str, text: str, kind: str = "notice") -> str:
     except Exception as e:  # network, auth, provider rejected
         status, err = "failed", str(e)[:300]
         print(f"email to {to} failed:", err)
-    conn.execute("INSERT INTO emails (to_addr, subject, body, kind, status, provider, provider_id, error) VALUES (?,?,?,?,?,?,?,?)",
-                 (to.strip(), subject, vault.seal(text, "emails", "body"), kind, status, p, pid, err))
+    conn.execute(
+        (
+            "INSERT INTO emails (to_addr, subject, body, kind, status, "
+            "provider, provider_id, error) VALUES (?,?,?,?,?,?,?,?)"
+        ),
+        (to.strip(), subject, vault.seal(text, "emails", "body"), kind, status, p, pid, err),
+    )
     return status

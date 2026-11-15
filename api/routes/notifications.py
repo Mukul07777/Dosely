@@ -1,15 +1,16 @@
 """Phone notifications (Web Push) and care savings."""
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import push
-
 from core import _plans, conn, current_account
 
 router = APIRouter()
 
 
 # ---- phone notifications (Web Push) ----
+
 
 class PushSubIn(BaseModel):
     endpoint: str
@@ -39,7 +40,14 @@ def push_unsubscribe(endpoint: str | None = None, account: str = Depends(current
 
 @router.post("/api/push/test")
 def push_test(account: str = Depends(current_account)):
-    n = push.send(conn, account, "Dosely notifications are on", "You'll get dose, refill and recall alerts here, even with Dosely closed.", "/care", "test")
+    n = push.send(
+        conn,
+        account,
+        "Dosely notifications are on",
+        "You'll get dose, refill and recall alerts here, even with Dosely closed.",
+        "/care",
+        "test",
+    )
     return {"sent": n}
 
 

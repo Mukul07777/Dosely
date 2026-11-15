@@ -4,13 +4,13 @@ from pathlib import Path
 
 os.environ.setdefault("KINCARE_DB", str(Path(tempfile.mkdtemp()) / "test.db"))
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-import main  # noqa: E402
-from testutil import auth_as  # noqa: E402
-import prices  # noqa: E402
-import voice  # noqa: E402
-from ingest.medicines import maker_key, parse_pack, salt_part  # noqa: E402
+import main
+import prices
+import voice
+from ingest.medicines import maker_key, parse_pack, salt_part
+from testutil import auth_as
 
 client = TestClient(main.app)
 ROWS = [  # as in the Indian Medicine Dataset
@@ -25,8 +25,24 @@ ROWS = [  # as in the Indian Medicine Dataset
 def setup_module():
     for mid, name, price, maker, pack, comp in ROWS:
         form, qty, unit = parse_pack(pack)
-        main.conn.execute("INSERT OR REPLACE INTO medicines VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                          (mid, name, name.lower(), price, maker, maker_key(maker), pack, salt_part(comp), salt_part(comp), form, qty, unit, price / qty))
+        main.conn.execute(
+            "INSERT OR REPLACE INTO medicines VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                mid,
+                name,
+                name.lower(),
+                price,
+                maker,
+                maker_key(maker),
+                pack,
+                salt_part(comp),
+                salt_part(comp),
+                form,
+                qty,
+                unit,
+                price / qty,
+            ),
+        )
     main.conn.commit()
     prices._maker_alerts = None
 

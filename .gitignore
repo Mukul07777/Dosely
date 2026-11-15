@@ -31,3 +31,4 @@ switch/demo_out/
 # API log from start_switch.sh
 api/uvicorn.log
 
+.ruff_cache/

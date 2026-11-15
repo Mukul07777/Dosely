@@ -6,13 +6,14 @@
 Labels are typed by a person from the strip (tests/strips/real/README.md). Results are printed per photo, summarised per
 set ("real" phone photos vs "synthetic" demo prints, never mixed), and saved to data/strip_bench.json for /status.
 """
+
 import argparse
-import sys
 import csv
 import json
 import re
+import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import ocr
@@ -28,7 +29,7 @@ def _expiry(s: str | None) -> str | None:
     """'10/2027', '10-27', 'OCT 2027' -> '2027-10' so different spellings of one date compare equal."""
     if not s:
         return None
-    months = "jan feb mar apr may jun jul aug sep oct nov dec".split()
+    months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
     m = re.search(r"(\d{1,2})\s*[/\-.]\s*(\d{2,4})", s)
     if m:
         mm, yy = int(m.group(1)), int(m.group(2))
@@ -60,28 +61,51 @@ def run(only: str | None = None) -> dict:
             f = {"batch": None, "expiry": None, "brand": None, "error": str(e)}
         ms = (time.perf_counter() - t) * 1000
         res = {
-            "file": r["file"], "set": r["set"], "ms": round(ms),
-            "batch": {"want": r["batch"], "got": f.get("batch"), "ok": bool(f.get("batch")) and normalise_batch(f["batch"]) == normalise_batch(r["batch"])},
-            "expiry": {"want": r["expiry"], "got": f.get("expiry"), "ok": bool(r["expiry"]) and _expiry(f.get("expiry")) == _expiry(r["expiry"])},
+            "file": r["file"],
+            "set": r["set"],
+            "ms": round(ms),
+            "batch": {
+                "want": r["batch"],
+                "got": f.get("batch"),
+                "ok": bool(f.get("batch")) and normalise_batch(f["batch"]) == normalise_batch(r["batch"]),
+            },
+            "expiry": {
+                "want": r["expiry"],
+                "got": f.get("expiry"),
+                "ok": bool(r["expiry"]) and _expiry(f.get("expiry")) == _expiry(r["expiry"]),
+            },
             "brand": {"want": r["brand"], "got": f.get("brand"), "ok": _brand_ok(f.get("brand"), r["brand"])},
         }
         results.append(res)
-        marks = " ".join(f"{k}:{'✓' if res[k]['ok'] else '✗ ' + str(res[k]['got'])}" for k in ("batch", "expiry", "brand"))
+        marks = " ".join(
+            f"{k}:{'✓' if res[k]['ok'] else '✗ ' + str(res[k]['got'])}" for k in ("batch", "expiry", "brand")
+        )
         print(f"  [{r['set']}] {Path(r['file']).name:<28} {ms:6.0f} ms  {marks}")
 
     def summary(items: list) -> dict:
         n = len(items)
-        pct = lambda k: round(100 * sum(i[k]["ok"] for i in items) / n, 1) if n else None
+
+        def pct(k):
+            return round(100 * sum(i[k]["ok"] for i in items) / n, 1) if n else None
+
         ms = sorted(i["ms"] for i in items)
-        return {"photos": n, "batch_pct": pct("batch"), "expiry_pct": pct("expiry"), "brand_pct": pct("brand"),
-                "median_ms": ms[n // 2] if n else None}
+        return {
+            "photos": n,
+            "batch_pct": pct("batch"),
+            "expiry_pct": pct("expiry"),
+            "brand_pct": pct("brand"),
+            "median_ms": ms[n // 2] if n else None,
+        }
 
     sets = {s: summary([r for r in results if r["set"] == s]) for s in sorted({r["set"] for r in results})}
-    report = {"generated_at": datetime.now(timezone.utc).isoformat(), "sets": sets, "results": results}
+    report = {"generated_at": datetime.now(UTC).isoformat(), "sets": sets, "results": results}
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(report, indent=2), encoding="utf-8")
     for s, v in sets.items():
-        print(f"\n{s}: {v['photos']} photos · batch {v['batch_pct']}% · expiry {v['expiry_pct']}% · brand {v['brand_pct']}% · median {v['median_ms']} ms")
+        print(
+            f"\n{s}: {v['photos']} photos · batch {v['batch_pct']}% · expiry "
+            f"{v['expiry_pct']}% · brand {v['brand_pct']}% · median {v['median_ms']} ms"
+        )
     if "real" not in sets:
         print("\nNo real phone photos yet: add them to tests/strips/real/ (see the README there).")
     return report

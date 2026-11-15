@@ -1,15 +1,16 @@
 """Recall blast radius: who holds a flagged batch, next dose first, body signal."""
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 import blast
 import roles
-
 from core import _log_note, _plans, _refresh, alert_device, conn, current_account, now, require, rows, run_check
 
 router = APIRouter()
 
 
 # ---- recall blast radius: who holds a flagged batch, next dose first, body signal ----
+
 
 @router.get("/api/insights/recall-gap")
 def recall_gap():
@@ -56,11 +57,31 @@ def blast_alert(batch: str, who: dict = Depends(require("holders.alert"))):
         else:
             status = "outbox"
             if h["phone"]:
-                status = _log_note("whatsapp", h["name"], h["phone"], "hi", batch, notify.whatsapp_text(alert, batch, h["name"], "hi"), alert["id"])
+                status = _log_note(
+                    "whatsapp",
+                    h["name"],
+                    h["phone"],
+                    "hi",
+                    batch,
+                    notify.whatsapp_text(alert, batch, h["name"], "hi"),
+                    alert["id"],
+                )
             if h["source"] == "care":
-                dev = conn.execute("SELECT p.device FROM plan_meds m JOIN plans p ON p.id = m.plan_id WHERE m.id = ?", (int(h["key"].split(":")[1]),)).fetchone()
-                if dev and alert_device(dev[0], f"⛔ Stop: {h['medicine']} batch {batch} is flagged",
-                                     "Don't take the next dose. Speak to your pharmacist or doctor.", "/care", f"blast-{h['key']}") and status != "sent":
+                dev = conn.execute(
+                    "SELECT p.device FROM plan_meds m JOIN plans p ON p.id = m.plan_id WHERE m.id = ?",
+                    (int(h["key"].split(":")[1]),),
+                ).fetchone()
+                if (
+                    dev
+                    and alert_device(
+                        dev[0],
+                        f"⛔ Stop: {h['medicine']} batch {batch} is flagged",
+                        "Don't take the next dose. Speak to your pharmacist or doctor.",
+                        "/care",
+                        f"blast-{h['key']}",
+                    )
+                    and status != "sent"
+                ):
                     status = "push"
         blast.mark(conn, ex["batch"], h["key"], status)
         out.append({"key": h["key"], "status": status, "minutes": h["minutes"]})
@@ -95,7 +116,16 @@ def care_batch_effects(account: str = Depends(current_account)):
             if m.get("bought_at") and m.get("batch"):
                 b = blast.body_signal(conn, dev, p["member"], m["bought_at"])
                 if b:
-                    out.append({"med_id": m["id"], "name": m["name"], "member": p["member"], "batch": m["batch"], "since": m["bought_at"], **b})
+                    out.append(
+                        {
+                            "med_id": m["id"],
+                            "name": m["name"],
+                            "member": p["member"],
+                            "batch": m["batch"],
+                            "since": m["bought_at"],
+                            **b,
+                        }
+                    )
     return out
 
 
@@ -104,31 +134,49 @@ def admin_overview(_: dict = Depends(require("admin.view"))):
     import billing
     import signals
 
-    one = lambda sql, a=(): conn.execute(sql, a).fetchone()[0]
+    def one(sql, a=()):
+        return conn.execute(sql, a).fetchone()[0]
+
     week = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')"
-    devices = one("""SELECT COUNT(*) FROM (SELECT device FROM watchlist UNION SELECT device FROM vitals UNION SELECT device FROM plans
-                     UNION SELECT device FROM reports UNION SELECT device FROM contacts UNION SELECT device FROM payments)""")
+    devices = one("""SELECT COUNT(*) FROM (SELECT device FROM watchlist UNION SELECT device FROM vitals UNION SELECT
+        device FROM plans
+                     UNION SELECT device FROM reports UNION SELECT device FROM contacts UNION SELECT device FROM
+                     payments)""")
     # Active = paid within one billing period; a yearly plan counts as a twelfth of its price per month.
     paid = []
-    for p in rows("""SELECT plan, COUNT(*) AS n, SUM(amount) AS amount, MIN(paid_at) AS first FROM payments WHERE status = 'paid'
+    for p in rows("""SELECT plan, COUNT(*) AS n, SUM(amount) AS amount, MIN(paid_at) AS first FROM payments WHERE
+        status = 'paid'
                      AND paid_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-366 days') GROUP BY plan"""):
         yearly = billing.PLANS.get(p["plan"], {}).get("interval") == "year"
         if not yearly:
-            p = {**p, **conn.execute("""SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount FROM payments WHERE status = 'paid' AND plan = ?
-                                       AND paid_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-31 days')""", (p["plan"],)).fetchone()}
+            p = {
+                **p,
+                **conn.execute(
+                    """SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount FROM payments WHERE status = 'paid'
+                        AND plan = ?
+                                       AND paid_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-31 days')""",
+                    (p["plan"],),
+                ).fetchone(),
+            }
         if p["n"]:
             paid.append({"plan": p["plan"], "n": p["n"], "amount": p["amount"] // 12 if yearly else p["amount"]})
     sig = signals.detect(conn)
     return {
         "users": devices,
         "payments": {
-            "ready": billing.ready(), "test_mode": billing.test_mode(),
+            "ready": billing.ready(),
+            "test_mode": billing.test_mode(),
             "mrr": sum(p["amount"] for p in paid) // 100,
             "active_by_plan": [{**p, "name": billing.PLANS.get(p["plan"], {}).get("name", p["plan"])} for p in paid],
             "lifetime": one("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'paid'") // 100,
-            "recent": rows("SELECT plan, amount, currency, status, email, created_at, paid_at FROM payments ORDER BY created_at DESC LIMIT 10"),
+            "recent": rows(
+                "SELECT plan, amount, currency, status, email, created_at, "
+                "paid_at FROM payments ORDER BY created_at DESC LIMIT 10"
+            ),
         },
-        "sos": rows("SELECT id, member, lat, lng, delivered, at, resolved_at FROM sos_events ORDER BY at DESC LIMIT 10"),
+        "sos": rows(
+            "SELECT id, member, lat, lng, delivered, at, resolved_at FROM sos_events ORDER BY at DESC LIMIT 10"
+        ),
         "sos_open": one("SELECT COUNT(*) FROM sos_events WHERE resolved_at IS NULL"),
         "vitals_urgent_7d": one(f"SELECT COUNT(*) FROM vitals WHERE level = 'urgent' AND at >= {week}"),
         "vitals_7d": one(f"SELECT COUNT(*) FROM vitals WHERE at >= {week}"),
@@ -136,8 +184,10 @@ def admin_overview(_: dict = Depends(require("admin.view"))):
         "signals": {"flagged": sum(s["level"] != "watch" for s in sig), "reports": one("SELECT COUNT(*) FROM reports")},
         "watchlist": one("SELECT COUNT(*) FROM watchlist"),
         "flagged_watch": one("SELECT COUNT(*) FROM watchlist WHERE last_verdict = 'alert_found'"),
-        "data": {**rows("SELECT COUNT(*) AS alerts, MIN(alert_month) AS start, MAX(alert_month) AS end FROM alerts")[0],
-                 "last_ingest": one("SELECT MAX(ingested_at) FROM documents")},
+        "data": {
+            **rows("SELECT COUNT(*) AS alerts, MIN(alert_month) AS start, MAX(alert_month) AS end FROM alerts")[0],
+            "last_ingest": one("SELECT MAX(ingested_at) FROM documents"),
+        },
         "recall_runs": one("SELECT COUNT(DISTINCT run_id) FROM events"),
         "notifications": one("SELECT COUNT(*) FROM notifications"),
     }

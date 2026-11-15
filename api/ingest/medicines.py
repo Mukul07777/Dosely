@@ -8,6 +8,7 @@ means riskier.
 Source: github.com/junioralive/Indian-Medicine-Dataset (MIT). Cached under data/raw/medicines/.
 Usage: python -m ingest.medicines [--refresh]
 """
+
 import argparse
 import csv
 import re
@@ -94,12 +95,28 @@ def main():
             except ValueError:
                 price = None
             form, qty, unit = parse_pack(r["pack_size_label"])
-            rows.append((int(r["id"]), r["name"].strip(), r["name"].strip().lower(), price, r["manufacturer_name"].strip(),
-                         maker_key(r["manufacturer_name"]), r["pack_size_label"].strip(), " + ".join(parts), "+".join(sorted(parts)),
-                         form, qty, unit, round(price / qty, 4) if price and qty else None))
+            rows.append(
+                (
+                    int(r["id"]),
+                    r["name"].strip(),
+                    r["name"].strip().lower(),
+                    price,
+                    r["manufacturer_name"].strip(),
+                    maker_key(r["manufacturer_name"]),
+                    r["pack_size_label"].strip(),
+                    " + ".join(parts),
+                    "+".join(sorted(parts)),
+                    form,
+                    qty,
+                    unit,
+                    round(price / qty, 4) if price and qty else None,
+                )
+            )
     conn.executemany("INSERT INTO medicines VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     conn.commit()
-    groups = conn.execute("SELECT COUNT(*) FROM (SELECT 1 FROM medicines GROUP BY salt_key, form HAVING COUNT(*) > 1)").fetchone()[0]
+    groups = conn.execute(
+        "SELECT COUNT(*) FROM (SELECT 1 FROM medicines GROUP BY salt_key, form HAVING COUNT(*) > 1)"
+    ).fetchone()[0]
     print(f"loaded {len(rows)} medicines in use; {groups} salt+form groups have more than one brand to compare")
 
 

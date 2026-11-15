@@ -1,15 +1,16 @@
 """Post-recall check-ins: how patients feel after a flagged batch, PvPI export."""
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from matcher import normalise_batch
-
 from core import conn, now, rows
+from matcher import normalise_batch
 
 router = APIRouter()
 
 
 # ---- post-recall check-ins ----
+
 
 class CheckinIn(BaseModel):
     feeling: str  # "ok" | "unwell"
@@ -31,9 +32,18 @@ def checkin_get(token: str):
     import checkin
 
     c = _checkin_row(token)
-    a = rows("SELECT product_name, brand, category, alert_month, reason, alert_url FROM alerts WHERE id = ?", (c["alert_id"],))
-    return {"name": c["name"], "batch": c["batch"], "language": c["language"], "responded": bool(c["responded_at"]),
-            "alert": a[0] if a else None, "symptoms": [{"key": k, "en": v[0], "hi": v[1]} for k, v in checkin.SYMPTOMS.items()]}
+    a = rows(
+        "SELECT product_name, brand, category, alert_month, reason, alert_url FROM alerts WHERE id = ?",
+        (c["alert_id"],),
+    )
+    return {
+        "name": c["name"],
+        "batch": c["batch"],
+        "language": c["language"],
+        "responded": bool(c["responded_at"]),
+        "alert": a[0] if a else None,
+        "symptoms": [{"key": k, "en": v[0], "hi": v[1]} for k, v in checkin.SYMPTOMS.items()],
+    }
 
 
 @router.post("/api/checkin/{token}")
@@ -47,13 +57,19 @@ def checkin_post(token: str, body: CheckinIn):
             raise HTTPException(400, "Blood pressure reading looks wrong")
     level = checkin.triage(body.feeling, symptoms, body.bp_sys, body.bp_dia)
     conn.execute(
-        "UPDATE checkins SET responded_at = ?, feeling = ?, symptoms = ?, bp_sys = ?, bp_dia = ?, note = ?, triage = ? WHERE token = ?",
+        (
+            "UPDATE checkins SET responded_at = ?, feeling = ?, symptoms = "
+            "?, bp_sys = ?, bp_dia = ?, note = ?, triage = ? WHERE token = ?"
+        ),
         (now(), body.feeling, ",".join(symptoms), body.bp_sys, body.bp_dia, (body.note or "")[:500], level, token),
     )
     if symptoms:  # check-in answers also feed Early Signal
         batch = conn.execute("SELECT batch FROM checkins WHERE token = ?", (token,)).fetchone()[0]
         conn.execute(
-            "INSERT OR REPLACE INTO reports (device, batch, batch_norm, symptoms, origin) VALUES (?, ?, ?, ?, 'checkin')",
+            (
+                "INSERT OR REPLACE INTO reports (device, batch, "
+                "batch_norm, symptoms, origin) VALUES (?, ?, ?, ?, 'checkin')"
+            ),
             (f"checkin:{token}", batch, normalise_batch(batch), ",".join(symptoms)),
         )
     conn.commit()
@@ -65,9 +81,14 @@ def checkins_list():
     items = rows(
         """SELECT c.*, a.product_name, a.brand, a.manufacturer, a.category FROM checkins c
            LEFT JOIN alerts a ON a.id = c.alert_id
-           ORDER BY c.responded_at IS NULL, CASE c.triage WHEN 'urgent' THEN 0 WHEN 'review' THEN 1 ELSE 2 END, c.responded_at DESC LIMIT 200"""
+           ORDER BY c.responded_at IS NULL, CASE c.triage WHEN 'urgent' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
+           c.responded_at DESC LIMIT 200"""
     )
-    return {"items": items, "responded": sum(1 for i in items if i["responded_at"]), "urgent": sum(1 for i in items if i["triage"] == "urgent")}
+    return {
+        "items": items,
+        "responded": sum(1 for i in items if i["responded_at"]),
+        "urgent": sum(1 for i in items if i["triage"] == "urgent"),
+    }
 
 
 @router.post("/api/checkins/{cid}/reviewed")
@@ -89,13 +110,44 @@ def checkins_pvpi():
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["patient_initials", "reaction", "reaction_onset_reported", "suspected_medicine", "batch_no", "manufacturer",
-                "regulator_alert", "bp_reading", "triage", "reporter_note"])
+    w.writerow(
+        [
+            "patient_initials",
+            "reaction",
+            "reaction_onset_reported",
+            "suspected_medicine",
+            "batch_no",
+            "manufacturer",
+            "regulator_alert",
+            "bp_reading",
+            "triage",
+            "reporter_note",
+        ]
+    )
     for c in checkins_list()["items"]:
         if not c["symptoms"] and c["feeling"] != "unwell":
             continue
         initials = "".join(p[0] for p in (c["name"] or "").split()[:2]).upper()
-        reactions = "; ".join(checkin.SYMPTOMS[s][0] for s in (c["symptoms"] or "").split(",") if s in checkin.SYMPTOMS) or "Feels unwell"
-        w.writerow([initials, reactions, c["responded_at"], c["product_name"], c["batch"], c["manufacturer"],
-                    f"{c['category']} alert", f"{c['bp_sys']}/{c['bp_dia']}" if c["bp_sys"] else "", c["triage"], c["note"]])
-    return Response(buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=kincare-pvpi-reports.csv"})
+        reactions = (
+            "; ".join(checkin.SYMPTOMS[s][0] for s in (c["symptoms"] or "").split(",") if s in checkin.SYMPTOMS)
+            or "Feels unwell"
+        )
+        w.writerow(
+            [
+                initials,
+                reactions,
+                c["responded_at"],
+                c["product_name"],
+                c["batch"],
+                c["manufacturer"],
+                f"{c['category']} alert",
+                f"{c['bp_sys']}/{c['bp_dia']}" if c["bp_sys"] else "",
+                c["triage"],
+                c["note"],
+            ]
+        )
+    return Response(
+        buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=kincare-pvpi-reports.csv"},
+    )

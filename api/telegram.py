@@ -12,10 +12,12 @@ getUpdates in a background thread, so it works on a laptop with no public URL (h
 Linking: Dosely makes a one-time code for a device, the person opens t.me/<bot>?start=<code>, Telegram sends
 "/start <code>" and the chat is tied to that device. Nobody can message a person who hasn't pressed Start.
 """
+
+import contextlib
 import os
 import secrets
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import requests
 
@@ -50,12 +52,15 @@ def bot_name() -> str | None:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def link_code(conn: sqlite3.Connection, device: str, role: str = "self") -> str:
     code = secrets.token_urlsafe(9).replace("-", "x").replace("_", "y")  # Telegram start params: [A-Za-z0-9_-], <= 64
-    conn.execute("INSERT INTO tg_codes (code, device, role, expires_at) VALUES (?,?,?,?)", (code, device, role, (_now() + LINK_TTL).isoformat()))
+    conn.execute(
+        "INSERT INTO tg_codes (code, device, role, expires_at) VALUES (?,?,?,?)",
+        (code, device, role, (_now() + LINK_TTL).isoformat()),
+    )
     conn.commit()
     return code
 
@@ -70,9 +75,11 @@ def claim(conn: sqlite3.Connection, code: str, chat_id: int, name: str | None) -
     if not r or datetime.fromisoformat(r["expires_at"]) < _now():
         return None
     conn.execute("DELETE FROM tg_codes WHERE code = ?", (code,))
-    conn.execute("INSERT INTO tg_links (chat_id, device, role, name, linked_at) VALUES (?,?,?,?,?) "
-                 "ON CONFLICT(chat_id, device) DO UPDATE SET role = excluded.role, name = excluded.name",
-                 (chat_id, r["device"], r["role"], name, _now().isoformat()))
+    conn.execute(
+        "INSERT INTO tg_links (chat_id, device, role, name, linked_at) VALUES (?,?,?,?,?) "
+        "ON CONFLICT(chat_id, device) DO UPDATE SET role = excluded.role, name = excluded.name",
+        (chat_id, r["device"], r["role"], name, _now().isoformat()),
+    )
     conn.commit()
     return {"device": r["device"], "role": r["role"]}
 
@@ -84,7 +91,9 @@ def chats(conn: sqlite3.Connection, device: str, role: str | None = None) -> lis
 
 def device_of(conn: sqlite3.Connection, chat_id: int) -> str | None:
     """The elder device a chat talks for (a 'self' link), newest first."""
-    r = conn.execute("SELECT device FROM tg_links WHERE chat_id = ? AND role = 'self' ORDER BY linked_at DESC LIMIT 1", (chat_id,)).fetchone()
+    r = conn.execute(
+        "SELECT device FROM tg_links WHERE chat_id = ? AND role = 'self' ORDER BY linked_at DESC LIMIT 1", (chat_id,)
+    ).fetchone()
     return r[0] if r else None
 
 
@@ -111,7 +120,9 @@ def send(chat_id: int, text: str, buttons: list[str] | None = None) -> bool:
     return r.ok
 
 
-def send_device(conn: sqlite3.Connection, device: str, text: str, role: str | None = None, buttons: list[str] | None = None) -> int:
+def send_device(
+    conn: sqlite3.Connection, device: str, text: str, role: str | None = None, buttons: list[str] | None = None
+) -> int:
     return sum(send(c, text, buttons) for c in chats(conn, device, role))
 
 
@@ -156,10 +167,8 @@ def poll(handle, stop=None) -> None:
 
     offset = 0
     url = f"{API}/bot{os.environ['TELEGRAM_BOT_TOKEN']}"
-    try:
+    with contextlib.suppress(requests.RequestException):
         requests.post(f"{url}/deleteWebhook", timeout=15)  # getUpdates doesn't work while a webhook is set
-    except requests.RequestException:
-        pass
     while not (stop and stop()):
         try:
             r = requests.get(f"{url}/getUpdates", params={"offset": offset, "timeout": 50}, timeout=60)

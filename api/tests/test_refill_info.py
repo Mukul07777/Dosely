@@ -6,16 +6,16 @@ from pathlib import Path
 
 os.environ.setdefault("KINCARE_DB", str(Path(tempfile.mkdtemp()) / "test.db"))
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-import care  # noqa: E402
-import main  # noqa: E402
-from testutil import auth_as  # noqa: E402
-import medinfo  # noqa: E402
-import prices  # noqa: E402
-import push  # noqa: E402
-import stores  # noqa: E402
-from ingest.medicines import maker_key, parse_pack, salt_part  # noqa: E402
+import care
+import main
+import medinfo
+import prices
+import push
+import stores
+from ingest.medicines import maker_key, parse_pack, salt_part
+from testutil import auth_as
 
 client = TestClient(main.app)
 H = auth_as("refill-test-device")
@@ -32,14 +32,34 @@ def setup_module():
     main.conn.execute("DELETE FROM medicines WHERE id IN (9101, 9102, 9103, 9104)")
     for mid, name, price, maker, pack, comp in ROWS:
         form, qty, unit = parse_pack(pack)
-        main.conn.execute("INSERT INTO medicines VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                          (mid, name, name.lower(), price, maker, maker_key(maker), pack, salt_part(comp), salt_part(comp), form, qty, unit, price / qty))
-    main.conn.execute("""INSERT INTO alerts (source, category, product_name, batch_no, batch_norm, manufacturer, reason, alert_month, alert_url)
-                         VALUES ('cdsco_nsq', 'nsq', 'Metformin Hydrochloride Tablets IP 500 mg', 'MF77', 'MF77', 'M/s. Other Labs', 'Dissolution', '2026-03', 'https://x')""")
+        main.conn.execute(
+            "INSERT INTO medicines VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                mid,
+                name,
+                name.lower(),
+                price,
+                maker,
+                maker_key(maker),
+                pack,
+                salt_part(comp),
+                salt_part(comp),
+                form,
+                qty,
+                unit,
+                price / qty,
+            ),
+        )
+    main.conn.execute("""INSERT INTO alerts (source, category, product_name, batch_no, batch_norm, manufacturer,
+        reason, alert_month, alert_url)
+                         VALUES ('cdsco_nsq', 'nsq', 'Metformin Hydrochloride Tablets IP 500 mg', 'MF77', 'MF77',
+                         'M/s. Other Labs', 'Dissolution', '2026-03', 'https://x')""")
     # Cached FDA label, so the test never goes online.
     main.conn.execute("CREATE TABLE IF NOT EXISTS fda_info (generic TEXT PRIMARY KEY, body TEXT)")
-    main.conn.execute("INSERT OR REPLACE INTO fda_info VALUES ('metformin hydrochloride', ?)",
-                      (json.dumps({"uses": "Lowers blood sugar in type 2 diabetes.", "label_name": "METFORMIN HYDROCHLORIDE"}),))
+    main.conn.execute(
+        "INSERT OR REPLACE INTO fda_info VALUES ('metformin hydrochloride', ?)",
+        (json.dumps({"uses": "Lowers blood sugar in type 2 diabetes.", "label_name": "METFORMIN HYDROCHLORIDE"}),),
+    )
     main.conn.commit()
     prices._maker_alerts = None
 
@@ -56,8 +76,15 @@ def test_refill_status_rules():
 
 
 def test_purchase_counts_tablets_and_refill_adds_up():
-    plan = client.post("/api/care/plans", headers=H, json={"member": "Papa", "advice": [], "medicines": [
-        {"name": "Glycomet 500", "strength": "500 mg", "morning": 1, "night": 1}]}).json()
+    plan = client.post(
+        "/api/care/plans",
+        headers=H,
+        json={
+            "member": "Papa",
+            "advice": [],
+            "medicines": [{"name": "Glycomet 500", "strength": "500 mg", "morning": 1, "night": 1}],
+        },
+    ).json()
     mid = main.conn.execute("SELECT id FROM plan_meds WHERE plan_id = ?", (plan["id"],)).fetchone()[0]
     client.post("/api/care/purchase", headers=H, json={"med_id": mid, "batch": "OK123"})
     r = next(x for x in client.get("/api/care/refills", headers=H).json() if x["med_id"] == mid)
@@ -73,13 +100,28 @@ def test_purchase_counts_tablets_and_refill_adds_up():
 
 
 def test_refill_reminder_once_with_cheaper_clean_brand():
-    plan = client.post("/api/care/plans", headers=H, json={"member": "Maa", "advice": [], "medicines": [
-        {"name": "Glycomet 500", "strength": "500 mg", "morning": 1, "night": 1}]}).json()
+    plan = client.post(
+        "/api/care/plans",
+        headers=H,
+        json={
+            "member": "Maa",
+            "advice": [],
+            "medicines": [{"name": "Glycomet 500", "strength": "500 mg", "morning": 1, "night": 1}],
+        },
+    ).json()
     mid = main.conn.execute("SELECT id FROM plan_meds WHERE plan_id = ?", (plan["id"],)).fetchone()[0]
-    client.post("/api/care/purchase", headers=H, json={"med_id": mid, "batch": "OK200", "qty": 4, "phone": "9876543210", "language": "en"})
+    client.post(
+        "/api/care/purchase",
+        headers=H,
+        json={"med_id": mid, "batch": "OK200", "qty": 4, "phone": "9876543210", "language": "en"},
+    )
     main.send_due_reminders()
     main.send_due_reminders()
-    notes = [r["message"] for r in main.conn.execute("SELECT message FROM notifications WHERE batch = 'OK200'") if "left" in r["message"]]
+    notes = [
+        r["message"]
+        for r in main.conn.execute("SELECT message FROM notifications WHERE batch = 'OK200'")
+        if "left" in r["message"]
+    ]
     assert len(notes) == 1 and "only 4 tablets" in notes[0] and "Metfo Clean 500 Tablet" in notes[0]
 
 
@@ -90,7 +132,10 @@ def test_medicine_info_page_data():
     assert r["alerts"]["total"] >= 1 and r["alerts"]["recent"][0]["batch_no"] == "MF77"
     assert r["price"]["cheapest_clean"]["name"] == "Metfo Clean 500 Tablet" and r["price"]["rank"] == 2
     assert client.get("/api/medicines/1/info").status_code == 404
-    assert medinfo.salt_names("telmisartan (40mg) + hydrochlorothiazide (12.5mg)") == ["telmisartan", "hydrochlorothiazide"]
+    assert medinfo.salt_names("telmisartan (40mg) + hydrochlorothiazide (12.5mg)") == [
+        "telmisartan",
+        "hydrochlorothiazide",
+    ]
 
 
 def test_push_subscription_and_validation():
@@ -99,7 +144,11 @@ def test_push_subscription_and_validation():
     bad = client.post("/api/push/subscribe", headers=H, json={"endpoint": "http://evil", "keys": {}})
     assert bad.status_code in (400, 503)
     if push.ready():
-        ok = client.post("/api/push/subscribe", headers=H, json={"endpoint": "https://push.example/abc", "keys": {"p256dh": "x", "auth": "y"}})
+        ok = client.post(
+            "/api/push/subscribe",
+            headers=H,
+            json={"endpoint": "https://push.example/abc", "keys": {"p256dh": "x", "auth": "y"}},
+        )
         assert ok.status_code == 200 and client.get("/api/push/key", headers=H).json()["subscribed"] is True
         client.delete("/api/push/subscribe", headers=H)
         assert client.get("/api/push/key", headers=H).json()["subscribed"] is False
@@ -108,7 +157,10 @@ def test_push_subscription_and_validation():
 def test_store_parse_sorts_by_distance_and_dedupes():
     els = [
         {"lat": 28.70, "lon": 77.10, "tags": {"name": "Far Kendra"}},
-        {"center": {"lat": 28.6140, "lon": 77.2091}, "tags": {"name": "Pradhan Mantri Bhartiya Janaushadhi Kendra", "addr:city": "New Delhi"}},
+        {
+            "center": {"lat": 28.6140, "lon": 77.2091},
+            "tags": {"name": "Pradhan Mantri Bhartiya Janaushadhi Kendra", "addr:city": "New Delhi"},
+        },
         {"lat": 28.61401, "lon": 77.20911, "tags": {"name": "duplicate"}},
         {"tags": {"name": "no location"}},
     ]

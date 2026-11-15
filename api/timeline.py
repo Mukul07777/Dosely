@@ -4,12 +4,15 @@ and how much shelf life it still has when it is. Those months are the window in 
 Dates on alerts come in several shapes ("Aug-2025", "08/2025", "2025-08", "Sept 2024"); anything unreadable is skipped,
 and the response says how many alerts each number is based on.
 """
+
 import re
 import sqlite3
 import threading
 from statistics import median
 
-MONTHS = {m: i + 1 for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
+MONTHS = {
+    m: i + 1 for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])
+}
 _cache: dict | None = None
 _key: tuple | None = None
 _fill = threading.Lock()
@@ -67,8 +70,13 @@ def compute(conn: sqlite3.Connection) -> dict:
         "median_shelf_left_months": median(shelf) if shelf else None,
         "pct_in_date_when_listed": round(100 * in_date / total_exp, 1) if total_exp else None,
         "in_date_when_listed": in_date,
-        "histogram": [{"label": l, "n": n} for l, n in zip(["0–3", "3–6", "6–9", "9–12", "12–18", "18–24", "24–36", "36+"], hist)],
-        "by_year": [{"year": y, "median_lag_months": median(v), "n": len(v)} for y, v in sorted(by_year.items()) if len(v) >= 20],
+        "histogram": [
+            {"label": label, "n": n}
+            for label, n in zip(["0–3", "3–6", "6–9", "9–12", "12–18", "18–24", "24–36", "36+"], hist, strict=False)
+        ],
+        "by_year": [
+            {"year": y, "median_lag_months": median(v), "n": len(v)} for y, v in sorted(by_year.items()) if len(v) >= 20
+        ],
         "source": "CDSCO + state NSQ / spurious alerts, manufacture date and expiry as printed on each alert",
     }
 

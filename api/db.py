@@ -194,16 +194,33 @@ def connect() -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     # Columns added after the first release.
     cols = {r[1] for r in conn.execute("PRAGMA table_info(watchlist)")}
-    for col, ddl in (("phone", "TEXT"), ("language", "TEXT DEFAULT 'hi'"), ("name", "TEXT"), ("member", "TEXT"), ("expiry", "TEXT")):
+    for col, ddl in (
+        ("phone", "TEXT"),
+        ("language", "TEXT DEFAULT 'hi'"),
+        ("name", "TEXT"),
+        ("member", "TEXT"),
+        ("expiry", "TEXT"),
+    ):
         if col not in cols:
             conn.execute(f"ALTER TABLE watchlist ADD COLUMN {col} {ddl}")
     # Purchase details, filled when the patient buys a prescribed medicine.
     cols = {r[1] for r in conn.execute("PRAGMA table_info(plan_meds)")}
-    for col, ddl in (("bought_at", "TEXT"), ("phone", "TEXT"), ("language", "TEXT DEFAULT 'hi'"), ("pharmacy", "TEXT"), ("expiry", "TEXT"), ("maker", "TEXT"),
-                     ("qty", "REAL"), ("refill_sent_at", "TEXT")):
+    for col, ddl in (
+        ("bought_at", "TEXT"),
+        ("phone", "TEXT"),
+        ("language", "TEXT DEFAULT 'hi'"),
+        ("pharmacy", "TEXT"),
+        ("expiry", "TEXT"),
+        ("maker", "TEXT"),
+        ("qty", "REAL"),
+        ("refill_sent_at", "TEXT"),
+    ):
         if col not in cols:
             conn.execute(f"ALTER TABLE plan_meds ADD COLUMN {col} {ddl}")
-    conn.execute("CREATE TABLE IF NOT EXISTS reminders_sent (med_id INTEGER, day TEXT, slot TEXT, sent_at TEXT, PRIMARY KEY (med_id, day, slot))")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS reminders_sent (med_id INTEGER, day "
+        "TEXT, slot TEXT, sent_at TEXT, PRIMARY KEY (med_id, day, slot))"
+    )
     conn.commit()
     return conn
 
@@ -213,7 +230,8 @@ class ThreadConnection:
 
     FastAPI runs sync endpoints on a thread pool. A single shared connection (check_same_thread=False) let parallel
     requests trample each other's cursors: COUNT(*) came back as None, "bad parameter or other API misuse", 500s.
-    Autocommit, so a pooled thread never sits on an open write transaction and blocks the others; conn.commit() is a no-op.
+    Autocommit, so a pooled thread never sits on an open write transaction and blocks the others; conn.commit() is a
+    no-op.
     """
 
     def __init__(self):

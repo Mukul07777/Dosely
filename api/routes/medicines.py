@@ -1,4 +1,5 @@
 """Same medicine, lower price; medicine info; Jan Aushadhi stores."""
+
 from fastapi import APIRouter, HTTPException, Query
 
 from core import conn
@@ -7,6 +8,7 @@ router = APIRouter()
 
 
 # ---- same medicine, lower price (Indian Medicine Dataset, 246k brands) ----
+
 
 @router.get("/api/medicines/search")
 def medicines_search(q: str = Query(..., min_length=2)):
@@ -27,7 +29,8 @@ def medicines_alternatives(mid: int, limit: int = 20):
 
 @router.get("/api/medicines/{mid}/info")
 def medicines_info(mid: int):
-    """Uses, how to take, side effects and warnings by salt (FDA label), plus CDSCO alerts for the salt and price rank."""
+    """Uses, how to take, side effects and warnings by salt (FDA label), plus CDSCO alerts for the salt and price
+    rank."""
     import medinfo
 
     r = medinfo.info(conn, mid)

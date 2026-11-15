@@ -1,4 +1,5 @@
 """Per-device watchlist of batches Dosely keeps re-checking."""
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
@@ -8,6 +9,7 @@ router = APIRouter()
 
 
 # ---- per-device watchlist (no accounts yet) ----
+
 
 class WatchIn(BaseModel):
     batch: str
@@ -30,13 +32,28 @@ def watch_add(w: WatchIn, account: str = Depends(current_account)):
     dev = account
     r = run_check(w.batch, w.maker, w.brand)
     conn.execute(
-        """INSERT INTO watchlist (device, batch, brand, maker, added_at, last_verdict, last_checked_at, phone, name, language, member, expiry)
+        """INSERT INTO watchlist (device, batch, brand, maker, added_at, last_verdict, last_checked_at, phone, name,
+            language, member, expiry)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(device, batch) DO UPDATE SET brand=excluded.brand, maker=excluded.maker,
            last_verdict=excluded.last_verdict, last_checked_at=excluded.last_checked_at,
-           phone=COALESCE(excluded.phone, watchlist.phone), name=COALESCE(excluded.name, watchlist.name), language=excluded.language,
+           phone=COALESCE(excluded.phone, watchlist.phone), name=COALESCE(excluded.name, watchlist.name),
+           language=excluded.language,
            member=COALESCE(excluded.member, watchlist.member), expiry=COALESCE(excluded.expiry, watchlist.expiry)""",
-        (dev, w.batch, w.brand, w.maker, now(), r["verdict"], r["checked_at"], _phone(w.phone), w.name, w.language, w.member, w.expiry),
+        (
+            dev,
+            w.batch,
+            w.brand,
+            w.maker,
+            now(),
+            r["verdict"],
+            r["checked_at"],
+            _phone(w.phone),
+            w.name,
+            w.language,
+            w.member,
+            w.expiry,
+        ),
     )
     conn.commit()
     return {"ok": True, "verdict": r["verdict"]}
@@ -52,8 +69,13 @@ def watch_recheck(account: str = Depends(current_account)):
             changed.append(w["batch"])
             if r["verdict"] == "alert_found":
                 a = r["matches"][0]["alert"]
-                alert_device(dev, f"⛔ Batch {w['batch']} is now flagged", f"{a['product_name']} ({a['alert_month']}). Stop using it and speak to your pharmacist.",
-                          "/watchlist", f"watch-{w['batch']}")
+                alert_device(
+                    dev,
+                    f"⛔ Batch {w['batch']} is now flagged",
+                    f"{a['product_name']} ({a['alert_month']}). Stop using it and speak to your pharmacist.",
+                    "/watchlist",
+                    f"watch-{w['batch']}",
+                )
         conn.execute(
             "UPDATE watchlist SET last_verdict = ?, last_checked_at = ? WHERE device = ? AND batch = ?",
             (r["verdict"], r["checked_at"], dev, w["batch"]),
