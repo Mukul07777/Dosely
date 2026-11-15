@@ -4,6 +4,7 @@ import { request } from "@/lib/api";
 
 export type Med = { id: number; name: string; strength: string | null; food: string | null; morning: number; noon: number; night: number; days: number | null; as_needed: number };
 export type Dose = { slot: "morning" | "noon" | "night"; time: string; med_id: number; name: string; strength: string | null; food: string | null; taken_at: string | null; state: "taken" | "missed" | "due" | "upcoming" };
+export type Routine = { id: number; title: string; time: string; done_at: string | null; done_by: string | null; state: Dose["state"] };
 export type Adherence = { pct_7: number | null; pct_30: number | null; streak_days: number; days: { day: string; due: number; taken: number; pct: number | null }[]; medicines: { med_id: number; name: string; due: number; taken: number; pct: number | null }[] };
 export type Appt = { id: number; doctor: string; specialty: string | null; place: string | null; at: string; notes: string | null; status: string; gcal: string };
 export type Change = { id: number; action: string; summary: string; member_name: string | null; at: string };
@@ -12,7 +13,7 @@ export type Member = { id: number; name: string; email: string | null; role: str
 export type View = {
   profile: { code: string; elder_name: string; approve_changes: number };
   you: { name: string; role: "elder" | "family" | "caretaker"; can_edit: boolean };
-  medicines: Med[]; today: Dose[]; adherence: Adherence; appointments: Appt[]; pending: Change[];
+  medicines: Med[]; today: Dose[]; routines: Routine[]; adherence: Adherence; appointments: Appt[]; pending: Change[];
   circle: { name: string; role: string }[]; activity: Activity[];
 };
 export type OwnProfile = { code: string; member: string; elder_name: string; elder_email: string | null; approve_changes: number; members: Member[]; pending: Change[]; activity: Activity[] };
@@ -48,4 +49,7 @@ export const saveMed = (code: string, b: Partial<Med> & Record<string, unknown>,
   call<{ status: "applied" | "pending"; summary: string }>(`/api/circle/p/${code}/meds${id ? `/${id}` : ""}`, json(id ? "PUT" : "POST", b), code);
 export const deleteMed = (code: string, id: number) => call<{ status: string }>(`/api/circle/p/${code}/meds/${id}`, { method: "DELETE" }, code);
 export const saveAppt = (code: string, b: Partial<Appt>, id?: number) => call(`/api/circle/p/${code}/appointments${id ? `/${id}` : ""}`, json(id ? "PUT" : "POST", b), code);
+export const addRoutine = (code: string, b: { title: string; time: string }) => call(`/api/circle/p/${code}/routines`, json("POST", b), code);
+export const deleteRoutine = (code: string, id: number) => call(`/api/circle/p/${code}/routines/${id}`, { method: "DELETE" }, code);
+export const tickRoutine = (code: string, id: number, done: boolean) => call(`/api/circle/p/${code}/routines/${id}/done`, json("POST", { done }), code);
 export const leave = (code: string) => call(`/api/circle/p/${code}/leave`, { method: "POST" }, code).finally(() => setToken(code, null));

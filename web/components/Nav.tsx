@@ -134,7 +134,7 @@ export function Footer() {
       <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-[1.3fr_repeat(4,1fr)]">
         <div>
           <Logo />
-          <p className="mt-3 max-w-xs text-sm text-muted">Know the batch, not just the brand. A drug-alert monitor for India.</p>
+          <p className="mt-3 max-w-xs text-sm text-muted">Medicines, doses and doctor visits, shared by the elder with the people who care.</p>
           <p className="mt-6 text-sm font-medium">Built by Mukul</p>
           <p className="text-sm text-muted">PromptWars × Catalyst 2026</p>
           <p className="mt-4 text-xs text-muted">Not medical advice. Always consult your pharmacist or doctor.</p>

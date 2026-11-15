@@ -44,6 +44,18 @@ def actor(code: str, request: Request) -> tuple[dict, dict | None]:
     raise HTTPException(401, "Unlock this care profile with its passcode first.")
 
 
+def _name(prof: dict, member: dict | None) -> str:
+    """Who to record an action under: the circle member, or the elder when they act themselves."""
+    return member["name"] if member else prof["elder_name"]
+
+
+def editor(code: str, request: Request) -> tuple[dict, str]:
+    """(profile, acting person's name) for a request that changes the schedule. 403 for view-only members."""
+    prof, member = actor(code, request)
+    _err(circle.require_edit, prof, member)
+    return prof, _name(prof, member)
+
+
 def _public(prof: dict) -> dict:
     return {k: prof[k] for k in ("code", "member", "elder_name", "elder_email", "approve_changes", "created_at")}
 
@@ -68,7 +80,10 @@ class ProfileUpdate(BaseModel):
 
 @router.post("/api/circle/profiles")
 def circle_create(b: ProfileIn, account: str = Depends(current_account)):
-    return _public(_err(circle.create_profile, conn, account, b.member.strip()[:20] or "Me", b.elder_name, b.elder_email, b.passcode, b.approve_changes))
+    """The elder creates their care profile and chooses the passcode to share."""
+    member = circle.clean(b.member, 20) or "Me"
+    prof = _err(circle.create_profile, conn, account, member, b.elder_name, b.elder_email, b.passcode, b.approve_changes)
+    return _public(prof)
 
 
 @router.get("/api/circle/profiles")
@@ -94,7 +109,9 @@ class MemberUpdate(BaseModel):
 @router.put("/api/circle/profiles/{code}/members/{mid}")
 def circle_member_update(code: str, mid: int, b: MemberUpdate, account: str = Depends(current_account)):
     prof = _owned(code, account)
-    if not conn.execute("UPDATE circle_members SET can_edit = ? WHERE id = ? AND profile_id = ? AND revoked_at IS NULL", (int(b.can_edit), mid, prof["id"])).rowcount:
+    updated = conn.execute("UPDATE circle_members SET can_edit = ? WHERE id = ? AND profile_id = ? AND revoked_at IS NULL",
+                           (int(b.can_edit), mid, prof["id"])).rowcount
+    if not updated:
         raise HTTPException(404, "Member not found")
     circle.log(conn, prof["id"], prof["elder_name"], "permission", f"member {mid}: {'can edit' if b.can_edit else 'view only'}")
     conn.commit()
@@ -104,7 +121,8 @@ def circle_member_update(code: str, mid: int, b: MemberUpdate, account: str = De
 @router.delete("/api/circle/profiles/{code}/members/{mid}")
 def circle_member_remove(code: str, mid: int, account: str = Depends(current_account)):
     prof = _owned(code, account)
-    r = conn.execute("SELECT name FROM circle_members WHERE id = ? AND profile_id = ? AND revoked_at IS NULL", (mid, prof["id"])).fetchone()
+    r = conn.execute("SELECT name FROM circle_members WHERE id = ? AND profile_id = ? AND revoked_at IS NULL",
+                     (mid, prof["id"])).fetchone()
     if not r:
         raise HTTPException(404, "Member not found")
     conn.execute("UPDATE circle_members SET revoked_at = ? WHERE id = ?", (circle._utc(), mid))
@@ -152,12 +170,16 @@ def circle_leave(code: str, request: Request):
 
 @router.get("/api/circle/p/{code}")
 def circle_view(code: str, request: Request):
+    """Everything the circle shares, in one call: schedule, today's state, adherence, visits, activity."""
     prof, m = actor(code, request)
+    you = ({"name": m["name"], "role": m["role"], "can_edit": bool(m["can_edit"])} if m
+           else {"name": prof["elder_name"], "role": "elder", "can_edit": True})
     return {
         "profile": {k: prof[k] for k in ("code", "elder_name", "approve_changes")},
-        "you": {"name": m["name"], "role": m["role"], "can_edit": bool(m["can_edit"])} if m else {"name": prof["elder_name"], "role": "elder", "can_edit": True},
+        "you": you,
         "medicines": circle.meds(conn, prof),
         "today": circle.today(conn, prof),
+        "routines": circle.routines(conn, prof),
         "adherence": circle.adherence(conn, prof, 30),
         "appointments": [{**a, "gcal": circle.gcal_url(a, prof["elder_name"])} for a in circle.appointments(conn, prof["id"])],
         "pending": circle.pending_changes(conn, prof["id"]),
@@ -231,20 +253,52 @@ def circle_appts(code: str, request: Request, past: bool = False):
 
 @router.post("/api/circle/p/{code}/appointments")
 def circle_appt_add(code: str, b: ApptIn, request: Request):
-    prof, m = actor(code, request)
-    return _err(circle.save_appointment, conn, prof, m["name"] if m else prof["elder_name"], b.model_dump(exclude_none=True))
+    prof, name = editor(code, request)
+    return _err(circle.save_appointment, conn, prof, name, b.model_dump(exclude_none=True))
 
 
 @router.put("/api/circle/p/{code}/appointments/{aid}")
 def circle_appt_edit(code: str, aid: int, b: ApptIn, request: Request):
-    prof, m = actor(code, request)
-    return _err(circle.save_appointment, conn, prof, m["name"] if m else prof["elder_name"], b.model_dump(exclude_none=True), aid)
+    prof, name = editor(code, request)
+    return _err(circle.save_appointment, conn, prof, name, b.model_dump(exclude_none=True), aid)
 
 
 @router.delete("/api/circle/p/{code}/appointments/{aid}")
 def circle_appt_delete(code: str, aid: int, request: Request):
+    prof, name = editor(code, request)
+    return _err(circle.delete_appointment, conn, prof, name, aid)
+
+
+# ---------- daily healthcare routines ----------
+
+class RoutineIn(BaseModel):
+    title: str
+    time: str  # HH:MM
+
+
+class RoutineDone(BaseModel):
+    done: bool = True
+    day: str | None = None
+
+
+@router.post("/api/circle/p/{code}/routines")
+def circle_routine_add(code: str, b: RoutineIn, request: Request):
+    """Add a daily routine such as 'Check blood pressure' at 07:30. Needs edit permission."""
+    prof, name = editor(code, request)
+    return _err(circle.add_routine, conn, prof, name, b.title, b.time)
+
+
+@router.delete("/api/circle/p/{code}/routines/{rid}")
+def circle_routine_delete(code: str, rid: int, request: Request):
+    prof, name = editor(code, request)
+    return _err(circle.delete_routine, conn, prof, name, rid)
+
+
+@router.post("/api/circle/p/{code}/routines/{rid}/done")
+def circle_routine_done(code: str, rid: int, b: RoutineDone, request: Request):
+    """Tick a routine for today. Anyone in the circle may, like ticking a dose."""
     prof, m = actor(code, request)
-    return _err(circle.delete_appointment, conn, prof, m["name"] if m else prof["elder_name"], aid)
+    return _err(circle.mark_routine, conn, prof, _name(prof, m), rid, b.done, b.day)
 
 
 @router.get("/api/circle/p/{code}/summary")
@@ -256,10 +310,14 @@ def circle_summary(code: str, request: Request):
     for med in circle.meds(conn, prof):
         t = "only when needed" if med["as_needed"] else ", ".join(s for s in ("morning", "noon", "night") if med[s])
         lines.append(f"- {med['name']} {med['strength'] or ''} | {t}{' | ' + med['food'] if med['food'] else ''}".replace("  ", " "))
-    lines += ["", f"Doses taken: {a['pct_7'] if a['pct_7'] is not None else '-'}% last 7 days, {a['pct_30'] if a['pct_30'] is not None else '-'}% last 30 days"]
+    week, month = (a[k] if a[k] is not None else "-" for k in ("pct_7", "pct_30"))
+    lines += ["", f"Doses taken: {week}% last 7 days, {month}% last 30 days"]
     for med in a["medicines"]:
         if med["pct"] is not None and med["pct"] < 80:
             lines.append(f"  Often missed: {med['name']} ({med['pct']}%)")
+    daily = circle.routines(conn, prof)
+    if daily:
+        lines += ["", "Daily routines: " + ", ".join(f"{r['title']} ({r['time']})" for r in daily)]
     nxt = circle.appointments(conn, prof["id"])
     if nxt:
         lines += ["", f"Next appointment: {nxt[0]['doctor']}, {nxt[0]['at'].replace('T', ' ')}"]
@@ -271,7 +329,8 @@ def circle_note(code: str, request: Request, lang: str = "en"):
     """Gemini's plain-language weekly note for the elder (rules-based without a key)."""
     prof, _ = actor(code, request)
     rate_limit(request, "gemini", 20, 600)
-    return gemini.care_note(prof["elder_name"], circle.adherence(conn, prof, 30), circle.appointments(conn, prof["id"]), "hi" if lang == "hi" else "en")
+    report, visits = circle.adherence(conn, prof, 30), circle.appointments(conn, prof["id"])
+    return gemini.care_note(prof["elder_name"], report, visits, "hi" if lang == "hi" else "en")
 
 
 @router.get("/api/circle/email/status")

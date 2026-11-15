@@ -2,9 +2,9 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { CalendarPlus, Check, KeyRound, Loader2, Pill, ShieldCheck, Sparkles, Trash2, UserMinus, Users } from "lucide-react";
+import { CalendarPlus, Check, HeartPulse, KeyRound, Loader2, Pill, ShieldCheck, Sparkles, Trash2, UserMinus, Users } from "lucide-react";
 import {
-  createProfile, decide, deleteMed, getToken, leave, myProfiles, note, removeMember, saveAppt, saveMed, setMemberEdit, tick, unlock, updateProfile, view,
+  addRoutine, createProfile, decide, deleteMed, deleteRoutine, getToken, leave, myProfiles, note, removeMember, saveAppt, saveMed, setMemberEdit, tick, tickRoutine, unlock, updateProfile, view,
   type Med, type OwnProfile, type View,
 } from "@/lib/circle";
 
@@ -108,6 +108,7 @@ function Profile({ code, onClose }: { code: string; onClose: () => void }) {
   const [ai, setAi] = useState<{ text: string; source: string } | null>(null);
   const [lang, setLang] = useState("en");
   const [appt, setAppt] = useState({ doctor: "", specialty: "", place: "", at: "", notes: "" });
+  const [routine, setRoutine] = useState({ title: "", time: "07:30" });
 
   const load = useCallback(async () => {
     try {
@@ -213,6 +214,31 @@ function Profile({ code, onClose }: { code: string; onClose: () => void }) {
           </li>))}</ul>
       </section>
 
+      <section className={card} aria-labelledby="routine-h">
+        <h2 id="routine-h" className="flex items-center gap-2 text-2xl font-bold"><HeartPulse aria-hidden /> Daily routines</h2>
+        <p className="text-lg text-slate-700">Small things that keep {v.profile.elder_name} well: a BP check, a walk, a glass of water. A reminder email goes out when one is due.</p>
+        {v.routines.length === 0 ? <p className="mt-2 text-lg">No routines yet.</p> : (
+          <ul className="mt-3 divide-y">{v.routines.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+              <span className="text-lg"><b>{r.time}</b> {r.title}
+                <span className={`ml-2 rounded-full px-3 py-1 text-base font-semibold ${r.state === "taken" ? "bg-green-100 text-green-900" : r.state === "missed" ? "bg-red-100 text-red-900" : r.state === "due" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-800"}`}>
+                  {r.state === "taken" ? `done${r.done_by ? ` by ${r.done_by}` : ""}` : r.state}</span></span>
+              <span className="flex gap-2">
+                <button className={r.done_at ? ghost : primary} aria-label={`${r.done_at ? "Undo" : "Mark done"}: ${r.title} ${r.time}`}
+                  onClick={() => act(() => tickRoutine(code, r.id, !r.done_at), r.done_at ? "Marked not done." : "Marked as done. The family can see it.")}>
+                  {r.done_at ? "Undo" : <><Check aria-hidden /> Done</>}</button>
+                {v.you.can_edit && <button className={ghost} aria-label={`Remove routine ${r.title}`} onClick={() => act(() => deleteRoutine(code, r.id), "Routine removed.")}><Trash2 aria-hidden /></button>}
+              </span>
+            </li>))}</ul>)}
+        {v.you.can_edit && (
+          <form className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end" aria-label="Add a daily routine"
+            onSubmit={(e) => { e.preventDefault(); act(() => addRoutine(code, routine), "Routine added. A reminder will go out each day."); setRoutine({ title: "", time: routine.time }); }}>
+            <Field label="Routine"><input required maxLength={80} className={input} placeholder="Check blood pressure" value={routine.title} onChange={(e) => setRoutine({ ...routine, title: e.target.value })} /></Field>
+            <Field label="Time"><input required type="time" className={input} value={routine.time} onChange={(e) => setRoutine({ ...routine, time: e.target.value })} /></Field>
+            <button className={primary}>Add routine</button>
+          </form>)}
+      </section>
+
       <section className={card} aria-labelledby="appt-h">
         <h2 id="appt-h" className="text-2xl font-bold">Doctor appointments</h2>
         <p className="text-lg text-slate-700">Everyone in the circle gets an email the day before and 2 hours before.</p>
@@ -221,17 +247,20 @@ function Profile({ code, onClose }: { code: string; onClose: () => void }) {
             <span className="text-lg"><b>{new Date(x.at).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</b> · {x.doctor}{x.specialty && ` (${x.specialty})`}{x.place && ` · ${x.place}`}</span>
             <span className="flex gap-2">
               <a className={ghost} href={x.gcal} target="_blank" rel="noopener noreferrer"><CalendarPlus aria-hidden /> Google Calendar</a>
-              <button className={ghost} onClick={() => act(() => saveAppt(code, { status: "done" }, x.id), "Marked as done.")}>Done</button>
-              <button className={ghost} onClick={() => act(() => saveAppt(code, { status: "cancelled" }, x.id), "Cancelled.")}>Cancel</button>
+              {v.you.can_edit && <>
+                <button className={ghost} aria-label={`Mark visit to ${x.doctor} as done`} onClick={() => act(() => saveAppt(code, { status: "done" }, x.id), "Marked as done.")}>Done</button>
+                <button className={ghost} aria-label={`Cancel visit to ${x.doctor}`} onClick={() => act(() => saveAppt(code, { status: "cancelled" }, x.id), "Cancelled.")}>Cancel</button>
+              </>}
             </span>
           </li>))}</ul>
-        <form className="mt-4 grid gap-3 sm:grid-cols-2" aria-label="Add an appointment" onSubmit={(e) => { e.preventDefault(); act(() => saveAppt(code, appt), "Appointment added. Reminders are set."); setAppt({ doctor: "", specialty: "", place: "", at: "", notes: "" }); }}>
+        {v.appointments.length === 0 && <p className="mt-2 text-lg">No upcoming appointments.</p>}
+        {v.you.can_edit && <form className="mt-4 grid gap-3 sm:grid-cols-2" aria-label="Add an appointment" onSubmit={(e) => { e.preventDefault(); act(() => saveAppt(code, appt), "Appointment added. Reminders are set."); setAppt({ doctor: "", specialty: "", place: "", at: "", notes: "" }); }}>
           <Field label="Doctor"><input required className={input} value={appt.doctor} onChange={(e) => setAppt({ ...appt, doctor: e.target.value })} /></Field>
           <Field label="Date and time"><input required type="datetime-local" className={input} value={appt.at} onChange={(e) => setAppt({ ...appt, at: e.target.value })} /></Field>
           <Field label="Speciality"><input className={input} value={appt.specialty} onChange={(e) => setAppt({ ...appt, specialty: e.target.value })} /></Field>
           <Field label="Place"><input className={input} value={appt.place} onChange={(e) => setAppt({ ...appt, place: e.target.value })} /></Field>
           <div className="sm:col-span-2"><button className={primary}>Add appointment</button></div>
-        </form>
+        </form>}
       </section>
 
       {own && (

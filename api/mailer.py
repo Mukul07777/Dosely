@@ -87,6 +87,7 @@ def send(conn, to: str, subject: str, text: str, kind: str = "notice") -> str:
     """Send one email (or record it in the outbox). Never raises: a reminder failing must not stop the others."""
     if not valid(to):
         return "invalid"
+    subject = " ".join(str(subject).split())[:200]  # one line only: a line break here could forge email headers
     p, status, pid, err = provider(), "outbox", None, None
     try:
         if p == "resend":

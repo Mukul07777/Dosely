@@ -23,29 +23,35 @@ def facts(elder: str, adherence: dict, appts: list[dict]) -> str:
     missed = [f"{m['name']} ({m['pct']}%)" for m in adherence["medicines"] if m["pct"] is not None and m["pct"] < 80]
     nxt = f"{appts[0]['doctor']} on {appts[0]['at'].replace('T', ' at ')}" if appts else "none booked"
     return (f"Elder: {elder}. Doses taken last 7 days: {adherence['pct_7']}%. Last 30 days: {adherence['pct_30']}%. "
-            f"Days in a row with every dose: {adherence['streak_days']}. Often missed: {', '.join(missed) or 'none'}. Next appointment: {nxt}.")
+            f"Days in a row with every dose: {adherence['streak_days']}. "
+            f"Often missed: {', '.join(missed) or 'none'}. Next appointment: {nxt}.")
 
 
 def fallback(elder: str, adherence: dict, appts: list[dict], lang: str) -> str:
     p = adherence["pct_7"]
     missed = [m["name"] for m in adherence["medicines"] if m["pct"] is not None and m["pct"] < 80]
+    visit = f"{appts[0]['doctor']}, {appts[0]['at'].replace('T', ' ')}" if appts else ""
     if lang == "hi":
         s = f"{elder} जी, इस हफ़्ते आपने {p if p is not None else '-'}% खुराक समय पर लीं।"
         s += f" {', '.join(missed)} पर थोड़ा ध्यान दें।" if missed else " बहुत बढ़िया, ऐसे ही चलते रहें।"
-        return s + (f" अगली डॉक्टर विज़िट: {appts[0]['doctor']}, {appts[0]['at'].replace('T', ' ')}।" if appts else "")
+        return s + (f" अगली डॉक्टर विज़िट: {visit}।" if appts else "")
     s = f"{elder}, you took {p if p is not None else '-'}% of your doses this week."
-    s += f" A little extra care with {', '.join(missed)} would help; ask your doctor if anything feels hard." if missed else " Wonderful, keep it up."
-    return s + (f" Next visit: {appts[0]['doctor']}, {appts[0]['at'].replace('T', ' ')}." if appts else "")
+    if missed:
+        s += f" A little extra care with {', '.join(missed)} would help; ask your doctor if anything feels hard."
+    else:
+        s += " Wonderful, keep it up."
+    return s + (f" Next visit: {visit}." if appts else "")
 
 
 def care_note(elder: str, adherence: dict, appts: list[dict], lang: str = "en") -> dict:
     if ready():
+        prompt = facts(elder, adherence, appts) + f" Write in {'Hindi' if lang == 'hi' else 'English'}."
         try:
             r = requests.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL()}:generateContent",
                 headers={"x-goog-api-key": os.environ["GEMINI_API_KEY"]}, timeout=20,
                 json={"systemInstruction": {"parts": [{"text": RULES}]},
-                      "contents": [{"role": "user", "parts": [{"text": facts(elder, adherence, appts) + f" Write in {'Hindi' if lang == 'hi' else 'English'}."}]}],
+                      "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                       "generationConfig": {"temperature": 0.4, "maxOutputTokens": 300}})
             r.raise_for_status()
             text = "".join(p.get("text", "") for p in r.json()["candidates"][0]["content"]["parts"]).strip()
