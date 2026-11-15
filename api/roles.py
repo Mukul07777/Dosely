@@ -16,7 +16,6 @@ PERMISSIONS: dict[str, tuple[str, ...]] = {
     "buyers.notify": (PHARMACIST,),
     "recall.run": (PHARMACIST, REGULATOR, ADMIN),
     # regulator: who holds a flagged batch (names, phones, next dose) across Dosely
-    "controller.view": (REGULATOR, ADMIN),
     "holders.view": (REGULATOR, ADMIN),
     "holders.alert": (REGULATOR, ADMIN),
     "notifications.view": (REGULATOR, ADMIN),

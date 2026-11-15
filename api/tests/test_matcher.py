@@ -93,11 +93,6 @@ def test_watchlist_roundtrip():
     assert client.get("/api/watchlist").status_code == 401  # no session, no data
 
 
-def test_pharmacy_state_roundtrip():
-    client.put("/api/pharmacy/state", json={"tasks": [1]}, headers=HDR)
-    assert client.get("/api/pharmacy/state", headers=HDR).json() == {"tasks": [1]}
-
-
 def test_scan_ocr():
     img = Path(__file__).parent / "fixtures" / "strip_telma.png"
     r = client.post("/api/scan", files={"image": ("s.png", img.read_bytes(), "image/png")}).json()

@@ -159,7 +159,6 @@ cd web && npm test && npx tsc --noEmit && npx eslint .   # 16 tests: display rul
 ```
 api/        FastAPI: care circle, reminders, Gemini, email, drug-alert matching
 web/        Next.js 15 site (landing, /circle, care, family, Dadi mode)
-switch/     AI agents for the family chat room
 docs/       setup guides, security notes
 Dockerfile  Cloud Run image (site + API in one container)
 ```

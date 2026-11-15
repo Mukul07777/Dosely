@@ -76,8 +76,8 @@ def test_every_guarded_endpoint_refuses_a_request_without_a_session():
 def test_roles_only_count_on_a_phone_verified_session():
     roles.grant(main.conn, "rb-guest-reg", "regulator", "test")
     guest = auth_as("rb-guest-reg", kind="guest")
-    assert client.get("/api/controller", headers=guest).status_code == 403
-    assert client.get("/api/controller", headers=auth_as("rb-guest-reg")).status_code == 200
+    assert client.get("/api/blast", headers=guest).status_code == 403
+    assert client.get("/api/blast", headers=auth_as("rb-guest-reg")).status_code == 200
 
 
 def test_request_approve_revoke_lifecycle(monkeypatch):
@@ -112,7 +112,7 @@ def test_admin_grants_by_phone_and_an_admin_session_needs_no_token():
     main.conn.execute("INSERT OR IGNORE INTO users (phone, device, created_at) VALUES ('+919800011122', 'rb-by-phone', '2026-10-25')")
     assert client.post("/api/admin/roles/grant", headers=PERSONAS["pharmacist"], json={"phone": "9800011122", "role": "admin"}).status_code == 403
     assert client.post("/api/admin/roles/grant", headers=ADMIN, json={"phone": "9800011122", "role": "regulator"}).json()["ok"]
-    assert client.get("/api/controller", headers=auth_as("rb-by-phone")).status_code == 200
+    assert client.get("/api/blast", headers=auth_as("rb-by-phone")).status_code == 200
     assert client.get("/api/admin/overview", headers=PERSONAS["admin"]).status_code == 200
     assert client.get("/api/admin/overview", headers=PERSONAS["regulator"]).status_code == 403
 

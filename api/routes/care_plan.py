@@ -366,7 +366,7 @@ def _warm_caches():
     import quality
 
     def warm():
-        for fn in (stats, datasets, insights_endpoint, recall_gap, lambda: controller_overview(None),
+        for fn in (stats, datasets, insights_endpoint, recall_gap,
                    lambda: quality.cached(conn, candidates)):
             try:
                 fn()
@@ -426,5 +426,4 @@ from routes.alerts import insights_endpoint, stats  # noqa: E402
 from routes.blast_radius import recall_gap  # noqa: E402
 from routes.family import tell_caregivers  # noqa: E402
 from routes.live_vitals import datasets  # noqa: E402
-from routes.regulator import controller_overview  # noqa: E402
 from routes.telegram_bot import TG_BUTTONS  # noqa: E402

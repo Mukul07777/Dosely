@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, BellRing, Camera, Check, Database, FileSearch, HeartPulse, Landmark, Store } from "lucide-react";
+import { ArrowRight, ArrowUpRight, BellRing, CalendarCheck, Check, Database, Mic, ShieldCheck, Stethoscope, Users } from "lucide-react";
 import { HeroMedical } from "@/components/HeroMedical";
 import { Reveal } from "@/components/Reveal";
 import { Eyebrow, Heading } from "@/components/Heading";
@@ -8,19 +8,14 @@ import { API_URL, formatMonth, type Stats } from "@/lib/api";
 export const dynamic = "force-dynamic";
 
 type Datasets = { alerts: number; alert_makers: number; medicines: number; salts: number; icu_patients: number };
-type Gap = {
-  alerts_used_lag: number; alerts_used_shelf: number; median_lag_months: number; p75_lag_months: number; median_shelf_left_months: number;
-  pct_in_date_when_listed: number; in_date_when_listed: number; histogram: { label: string; n: number }[];
-};
 const n = (v?: number) => (v == null ? "–" : v.toLocaleString("en-IN"));
 
 // Headline figures come from the live alert database, never typed in.
 async function figures() {
   try {
-    const [s, d, gap]: [Stats, Datasets | null, Gap | null] = await Promise.all([
+    const [s, d]: [Stats, Datasets | null] = await Promise.all([
       fetch(`${API_URL}/api/stats`, { cache: "no-store" }).then((r) => r.json()),
       fetch(`${API_URL}/api/datasets`, { cache: "no-store" }).then((r) => r.json()).catch(() => null),
-      fetch(`${API_URL}/api/insights/recall-gap`, { cache: "no-store" }).then((r) => r.json()).catch(() => null),
     ]);
     const last = s.by_month.at(-1)!;
     const [y, m] = last.month.split("-").map(Number);
@@ -33,29 +28,26 @@ async function figures() {
       total: s.total.toLocaleString("en-IN"),
       since: s.coverage.start.slice(0, 4),
       data: d,
-      gap: gap?.median_lag_months != null ? gap : null,
     };
   } catch {
     return null;
   }
 }
 
-const SOURCES = ["CDSCO NSQ alerts", "CDSCO spurious lists", "State drug laboratories", "Central Drugs Laboratory, Kolkata", "Monthly drug alerts", "Revised alert lists"];
-
 const STEPS = [
-  { icon: Camera, title: "Scan the strip", body: "A photo of the back of the strip, its QR code, or the pharmacy bill. You confirm what we read." },
-  { icon: FileSearch, title: "Checked exactly", body: "Every CDSCO and state alert, matched on the exact batch. A near-miss never raises a false alarm." },
-  { icon: BellRing, title: "Watched for good", body: "If a new list names your batch, WhatsApp and a Hindi voice call reach you before the next dose." },
+  { icon: ShieldCheck, title: "One shared profile", body: "The elder's medicines, schedule and doctor visits in one place, opened by family with a passcode the elder controls." },
+  { icon: BellRing, title: "Reminders that land", body: "Email, WhatsApp or Telegram before every dose and appointment, in Hindi or English. Missed doses tell the family." },
+  { icon: CalendarCheck, title: "Adherence you can see", body: "Taken, late or missed, day by day, so the family and the doctor see the same picture." },
 ];
 
-// Three people Dosely protects, each with the one thing it does for them.
+// Three people around one elder, each with the one thing Dosely does for them.
 const AUDIENCES = [
-  { icon: HeartPulse, who: "Families", line: "Know the medicine in your home is not on a failed list, and never miss a dose.",
-    points: ["Scan, WhatsApp or ask in Hindi", "Dose reminders and refills", "Same salt, lower price"], href: "/scan", cta: "Check a batch" },
-  { icon: Store, who: "Pharmacies", line: "Check your stock against every alert and reach every customer who bought a flagged batch.",
-    points: ["Stock matched automatically", "Buyers alerted, response logged", "Customers get Dosely free"], href: "/pharmacy", cta: "Open the recall desk" },
-  { icon: Landmark, who: "Regulators", line: "See who still holds a failed batch, where copied pack codes travel, and what patients report.",
-    points: ["Recall blast radius", "Fake-pack radar", "Ranked action queue"], href: "/controller", cta: "See the dashboard" },
+  { icon: Mic, who: "The elder", line: "Big text, spoken replies in Hindi, and one tap to mark a dose taken. No app to learn.",
+    points: ["Dadi mode: talk or type in Hindi", "One-tap dose confirmation", "SOS with location and medicines"], href: "/dadi", cta: "Try Dadi mode" },
+  { icon: Users, who: "The family", line: "See today's doses, missed reminders and upcoming visits for a parent, from any city, with their consent.",
+    points: ["Passcode-shared care circle", "Missed-dose alerts", "Batch check on every strip"], href: "/circle", cta: "Open care circle" },
+  { icon: Stethoscope, who: "The doctor", line: "A private link to the patient's adherence, vitals and messages, without another login.",
+    points: ["Adherence and vitals at a glance", "Message the family", "Prescription to reminders"], href: "/care", cta: "See the care plan" },
 ];
 
 export default async function Home() {
@@ -97,34 +89,16 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Sources */}
-      <section className="mt-16 border-y border-line bg-paper/60">
-        <p className="pt-6 text-center text-xs font-medium uppercase tracking-[0.18em] text-muted">Every public source, read every night</p>
-        <div className="flex overflow-hidden">
-          <div className="marquee flex shrink-0 items-center">
-            {[...SOURCES, ...SOURCES].map((s, i) => (
-              <span key={i} className="flex items-center gap-3 px-10 py-6 text-lg font-medium tracking-tight text-mocha">
-                <span className="size-1.5 rotate-45 bg-clay" />
-                {s}
-              </span>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* The recall gap, measured on every alert */}
-      {f?.gap && <RecallGap g={f.gap} />}
-
       {/* How it works */}
       <section id="how" className="mx-auto max-w-6xl scroll-mt-24 px-4 pt-28 sm:px-6">
         <Reveal>
           <div className="grid items-end gap-6 md:grid-cols-2">
             <div>
               <Eyebrow>How it works</Eyebrow>
-              <Heading lead="Scan once." tail="Watched for good." className="mt-4 text-4xl sm:text-5xl" />
+              <Heading lead="Set up once." tail="Cared for every day." className="mt-4 text-4xl sm:text-5xl" />
             </div>
             <p className="max-w-sm text-muted md:ml-auto">
-              A failed batch does not condemn the brand. Only the batch number tells you, so that is exactly what we check. We never say “safe”: only “no alert found as of” a date and time.
+              Built for parents who live alone or far from their children: the elder stays in charge of who sees what, and the family stops guessing.
             </p>
           </div>
         </Reveal>
@@ -147,8 +121,8 @@ export default async function Home() {
       {/* Who it's for */}
       <section className="mx-auto max-w-6xl px-4 pt-28 sm:px-6">
         <Reveal>
-          <Eyebrow>One alert network</Eyebrow>
-          <Heading lead="Built for the three people" tail="a recall depends on." className="mt-4 max-w-3xl text-4xl sm:text-5xl" />
+          <Eyebrow>Who it is for</Eyebrow>
+          <Heading lead="Built around one elder" tail="and the people who care for them." className="mt-4 max-w-3xl text-4xl sm:text-5xl" />
         </Reveal>
         <div className="mt-12 grid gap-4 lg:grid-cols-3">
           {AUDIENCES.map(({ icon: Icon, who, line, points, href, cta }, i) => (
@@ -208,12 +182,12 @@ export default async function Home() {
             <div className="dots absolute inset-0 opacity-20" />
             <div className="relative grid items-center gap-8 md:grid-cols-[1.4fr_1fr]">
               <h2 className="text-4xl font-medium leading-tight tracking-tight sm:text-5xl">
-                Check your parents’ medicines <span className="text-clay">tonight.</span>
+                Set up your parent’s care circle <span className="text-clay">tonight.</span>
               </h2>
               <div className="md:text-right">
-                <p className="text-paper/70">Ten seconds. Free for patients, forever.</p>
-                <Link href="/scan" className="mt-5 inline-flex items-center gap-2 rounded-full bg-paper px-6 py-3 text-sm font-medium text-espresso transition hover:bg-sand">
-                  Check a batch <ArrowRight className="size-4" />
+                <p className="text-paper/70">Five minutes. Free for families, forever.</p>
+                <Link href="/circle" className="mt-5 inline-flex items-center gap-2 rounded-full bg-paper px-6 py-3 text-sm font-medium text-espresso transition hover:bg-sand">
+                  Open care circle <ArrowRight className="size-4" />
                 </Link>
               </div>
             </div>
@@ -221,90 +195,5 @@ export default async function Home() {
         </Reveal>
       </section>
     </main>
-  );
-}
-
-// Made → months in homes, unseen → CDSCO lists it → months still in date. Drawn to scale from the medians.
-function RecallGap({ g }: { g: Gap }) {
-  const lag = g.median_lag_months, left = g.median_shelf_left_months, total = lag + left;
-  const max = Math.max(...g.histogram.map((h) => h.n));
-  return (
-    <section className="mx-auto max-w-6xl px-4 pt-24 sm:px-6">
-      <Reveal>
-        <div className="grid items-end gap-6 md:grid-cols-2">
-          <div>
-            <Eyebrow>The recall gap · measured</Eyebrow>
-            <Heading lead="Ten months in homes." tail="Before anyone is told." className="mt-4 text-4xl sm:text-5xl" />
-          </div>
-          <p className="max-w-sm text-muted md:ml-auto">
-            From the manufacture and expiry dates printed on {n(g.alerts_used_lag)} real CDSCO alerts. When a batch is finally listed,
-            it is almost always still in date: still on shelves, still being swallowed.
-          </p>
-        </div>
-      </Reveal>
-
-      <Reveal>
-        <div className="relative mt-10 overflow-hidden rounded-[2.5rem] bg-espresso p-6 text-paper sm:p-10">
-          <div className="pointer-events-none absolute -right-24 -top-24 size-80 rounded-full bg-danger/25 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-24 left-1/3 size-72 rounded-full bg-teal/20 blur-3xl" />
-
-          <div className="relative grid gap-4 sm:grid-cols-3">
-            {[
-              [`${lag}`, "months", "median from manufacture to the CDSCO list", "text-[#ff8a73]"],
-              [`${g.pct_in_date_when_listed}%`, "", `still in date when listed (${n(g.in_date_when_listed)} of ${n(g.alerts_used_shelf)})`, "text-[#f3b56b]"],
-              [`${left}`, "months", "median shelf life left after the alert", "text-[#f3b56b]"],
-            ].map(([v, u, l, c]) => (
-              <div key={l} className="rounded-3xl border border-paper/10 bg-paper/5 p-6">
-                <p className={`font-mono text-5xl font-semibold tracking-tight sm:text-6xl ${c}`}>{v}<span className="ml-1 text-lg font-normal text-paper/50">{u}</span></p>
-                <p className="mt-2 text-sm text-paper/65">{l}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* To-scale timeline */}
-          <div className="relative mt-10">
-            <div className="flex h-14 overflow-hidden rounded-2xl">
-              <div className="flex items-center justify-center bg-gradient-to-r from-danger/40 to-danger/80 px-3 text-xs font-medium sm:text-sm" style={{ width: `${(lag / total) * 100}%` }}>
-                In homes, nobody told · {lag} mo
-              </div>
-              <div className="flex items-center justify-center bg-gradient-to-r from-warn/70 to-warn/30 px-3 text-xs font-medium sm:text-sm" style={{ width: `${(left / total) * 100}%` }}>
-                Listed, still in date · {left} mo
-              </div>
-            </div>
-            <div className="absolute -top-3 h-20 w-0.5 bg-paper" style={{ left: `${(lag / total) * 100}%` }} />
-            <div className="relative mt-3 h-4 text-[11px] text-paper/55 sm:text-xs">
-              <span className="absolute left-0">Batch made</span>
-              <span className="absolute -translate-x-1/2 whitespace-nowrap font-semibold text-paper" style={{ left: `${(lag / total) * 100}%` }}>CDSCO lists it</span>
-              <span className="absolute right-0">Expiry</span>
-            </div>
-          </div>
-
-          <div className="relative mt-10 grid items-end gap-8 lg:grid-cols-[1.2fr_1fr]">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-paper/50">Months from manufacture to listing · every alert</p>
-              <div className="mt-4 flex h-32 items-end gap-2">
-                {g.histogram.map((h) => (
-                  <div key={h.label} className="flex flex-1 flex-col items-center gap-1.5">
-                    <span className="font-mono text-[10px] text-paper/50">{n(h.n)}</span>
-                    <div className="w-full rounded-t-lg bg-gradient-to-t from-danger/60 to-[#ff8a73]" style={{ height: `${Math.max(4, (h.n / max) * 96)}px` }} />
-                    <span className="text-[10px] text-paper/50">{h.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-3xl bg-teal p-6">
-              <p className="text-xs font-medium uppercase tracking-wider text-paper/70">Dosely closes the second half</p>
-              <p className="mt-2 text-xl font-medium leading-snug">The moment a batch is listed, everyone holding it hears, soonest next dose first.</p>
-              <Link href="/blast" className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-paper px-4 py-2 text-sm font-medium text-teal hover:bg-sand">
-                See the recall blast radius <ArrowRight className="size-4" />
-              </Link>
-            </div>
-          </div>
-          <p className="relative mt-6 text-[11px] text-paper/40">
-            Source: CDSCO and state NSQ / spurious alerts 2019–2026, dates as printed on each alert; unreadable dates skipped. A quarter of batches took {g.p75_lag_months}+ months to be listed.
-          </p>
-        </div>
-      </Reveal>
-    </section>
   );
 }

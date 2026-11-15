@@ -1,15 +1,15 @@
 import {
-  Activity, BadgeIndianRupee, BarChart3, Building2, Cpu, FileSearch, HeartPulse, IndianRupee, Landmark, LayoutDashboard, ListChecks, MessageCircle,
-  Mic, Network, Play, Radar, ScanLine, ShieldAlert, ShieldCheck, Siren, Store, UserRound, Users, Waves, type LucideIcon,
+  Activity, BarChart3, Building2, Cpu, FileSearch, HeartPulse, IndianRupee, LayoutDashboard, ListChecks, MessageCircle,
+  Mic, Radar, ScanLine, ShieldAlert, ShieldCheck, Siren, UserRound, Users, Waves, type LucideIcon,
 } from "lucide-react";
 
 // Every page in one place: the nav, the footer and the ⌘K palette all read from here, so nothing gets orphaned.
 export type Route = { href: string; label: string; hint: string; icon: LucideIcon; keywords?: string };
-export type Group = { id: "families" | "pharmacies" | "regulators" | "more"; label: string; blurb: string; routes: Route[] };
+export type Group = { id: "families" | "safety" | "more"; label: string; blurb: string; routes: Route[] };
 
 export const GROUPS: Group[] = [
   {
-    id: "families", label: "Families", blurb: "Check, take and afford the right medicine",
+    id: "families", label: "Elder and family", blurb: "Doses, appointments and family, in one shared profile",
     routes: [
       { href: "/scan", label: "Scan a strip", hint: "Photo, QR or bill, checked against every alert", icon: ScanLine, keywords: "batch check ocr camera qr bill" },
       { href: "/whatsapp", label: "WhatsApp", hint: "Send a strip photo, get the verdict. No app", icon: MessageCircle, keywords: "chat photo bot" },
@@ -23,32 +23,22 @@ export const GROUPS: Group[] = [
     ],
   },
   {
-    id: "pharmacies", label: "Pharmacies", blurb: "Stock, sales and recalls in one desk",
+    id: "safety", label: "Medicine safety", blurb: "Is the strip at home on a failed list?",
     routes: [
-      { href: "/network", label: "Care network", hint: "Family rooms + Pharmacy Desk on Switch: one recall, every home, a human decides", icon: Network, keywords: "switch room telegram agents pharmacist doctor approve blast" },
-      { href: "/pharmacy", label: "Recall desk", hint: "Check stock, alert every buyer", icon: Store, keywords: "inventory sales csv" },
-      { href: "/pricing", label: "Plans", hint: "₹499 a month, customers get Dosely free", icon: BadgeIndianRupee, keywords: "pricing subscription business" },
       { href: "/live", label: "60-second recall", hint: "A new list, matched and alerted live", icon: Waves, keywords: "live recall agents" },
-    ],
-  },
-  {
-    id: "regulators", label: "Regulators", blurb: "Every failed batch, followed to the home",
-    routes: [
-      { href: "/blast", label: "Blast radius", hint: "Who holds a failed batch, next dose first", icon: Activity, keywords: "recall holders alert" },
-      { href: "/controller", label: "Controller dashboard", hint: "State view and a ranked action queue", icon: Landmark, keywords: "drug controller state cdsco" },
+      { href: "/blast", label: "Who holds a recalled batch", hint: "Holders reached, next dose first", icon: Activity, keywords: "recall holders alert" },
       { href: "/radar", label: "Fake-pack radar", hint: "Copied QR codes caught across cities", icon: Radar, keywords: "counterfeit fake spurious qr" },
-      { href: "/signals", label: "Early signals", hint: "Patients report problems before any list", icon: ShieldAlert, keywords: "symptoms pvpi pharmacovigilance" },
-      { href: "/insights", label: "National insights", hint: "What fails, where, and in which drugs", icon: BarChart3, keywords: "data analytics" },
-      { href: "/alerts", label: "All alerts", hint: "Search 7,920 CDSCO and state alerts", icon: FileSearch, keywords: "nsq spurious list search" },
+      { href: "/signals", label: "Report a problem", hint: "Side effects reported before any list", icon: ShieldAlert, keywords: "symptoms pvpi pharmacovigilance" },
+      { href: "/insights", label: "Insights", hint: "What fails, where, and in which drugs", icon: BarChart3, keywords: "data analytics" },
+      { href: "/alerts", label: "All alerts", hint: "Search every CDSCO and state alert", icon: FileSearch, keywords: "nsq spurious list search" },
       { href: "/maker", label: "Manufacturers", hint: "A maker's alert record", icon: Building2, keywords: "company manufacturer" },
     ],
   },
   {
     id: "more", label: "More", blurb: "",
     routes: [
-      { href: "/demo", label: "Live demo", hint: "One patient, prescription to first dose", icon: Play, keywords: "tour walkthrough" },
       { href: "/status", label: "Under the hood", hint: "Live accuracy, latency and data freshness", icon: Cpu, keywords: "status health architecture tech engineering" },
-      { href: "/ask", label: "Ask the regulator", hint: "Questions answered from the alert data", icon: LayoutDashboard, keywords: "chat question" },
+      { href: "/ask", label: "Ask the data", hint: "Questions answered from the alert data", icon: LayoutDashboard, keywords: "chat question" },
       { href: "/how", label: "How it works", hint: "Sources, matching and our limits", icon: FileSearch },
       { href: "/account", label: "Account", hint: "Plan, phone and sign out", icon: UserRound, keywords: "login profile" },
       { href: "/privacy", label: "Privacy", hint: "Your data: see it, delete it, who can see it", icon: ShieldCheck, keywords: "dpdp data delete export consent" },

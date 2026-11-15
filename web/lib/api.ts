@@ -473,18 +473,6 @@ export const getRadar = () => call<Radar>("/api/packs/radar");
 export const seedRadarDemo = () => call<{ seeded: number }>("/api/packs/demo", { method: "POST" });
 export const clearRadarDemo = () => call<{ cleared: number }>("/api/packs/demo", { method: "DELETE" });
 
-// ---- drug-controller dashboard ----
-type NameN2 = { name: string; n: number };
-export type ControllerAction = { kind: "recall" | "counterfeit" | "signal" | "checkin"; severity: number; title: string; detail: string; href: string; simulated: boolean };
-export type Controller = {
-  state: string | null; states: NameN2[]; as_of: string;
-  kpis: { alerts_12m: number; alerts_prev_12m: number; spurious_12m: number; critical_24m: number; median_lag_months: number | null; lag_sample: number;
-    batches_in_homes: number; people_holding: number; people_alerted: number; copied_codes: number; signals: number; urgent_checkins: number };
-  trend: { month: string; n: number }[]; failures: NameN2[]; groups: NameN2[]; makers: NameN2[];
-  held: { batch_norm: string; batch_no: string; medicine: string; maker: string; category: string; month: string; holders: number; alerted: number; due_24h: number; reacting: number; simulated: number }[];
-  actions: ControllerAction[]; scope_note: string; generated_at: string;
-};
-export const getController = (state?: string) => call<Controller>(`/api/controller?${qs({ state })}`);
 export type IngestRun = { trigger: string; started_at: string; finished_at: string | null; status: string; alerts_before: number | null; alerts_after: number | null; error: string | null };
 export type Quality = {
   alerts_in_db: number; sampled_alerts: number; positive_probes: number; recall_pct: number; near_miss_probes: number; clean_probes: number;
@@ -561,26 +549,3 @@ export const adminGrantRole = (phone: string, role: Role, token: string) =>
   call<{ ok: boolean; already?: boolean }>("/api/admin/roles/grant", { method: "POST", headers: adminHeaders(token), body: JSON.stringify({ phone, role }) });
 export type AuditEntry = { id: number; at: string; actor: string; role: string | null; action: string; target: string | null; detail: string | null };
 export const adminAudit = (token: string) => call<AuditEntry[]>("/api/admin/audit", { headers: adminHeaders(token) });
-
-// ---- Switch: the Care Network (family rooms + Pharmacy Desk), computed by the same logic the agents run ----
-
-export type NetMedicine = { person: string; brand: string; batch: string; maker?: string; times: string[]; flagged: boolean };
-export type NetFamily = { name: string; caregiver: string; default: boolean; medicines: NetMedicine[] };
-export type NetHolder = { family: string; caregiver: string; person: string; times: string[]; room_id: string; default: boolean };
-export type NetOption = { id: number; name: string; maker: string; price: number; pack: string; salts: string; unit_price: number };
-export type NetFlagged = {
-  batch: string; brand: string;
-  doctor: { required: boolean; why: string };
-  holders: NetHolder[];
-  alert: { category: string; product_name: string; reason: string; manufacturer: string; reported_by: string;
-           alert_month: string; mfg_date: string; expiry: string; alert_url: string };
-  options: NetOption[]; salts: string[]; strengths: string[]; note: string;
-};
-export type NetAgent = { name: string; label: string; kind: string; job: string };
-export type SwitchNetwork = {
-  pharmacy: string; pharmacist: string; families: NetFamily[]; flagged: NetFlagged[]; checked: number;
-  documents: { decisions: { family: string; text: string }[]; tasks: { family: string; text: string; done: boolean }[] };
-  agents: NetAgent[];
-};
-
-export const getSwitchNetwork = () => call<SwitchNetwork>("/api/switch/network");

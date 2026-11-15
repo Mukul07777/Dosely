@@ -28,10 +28,9 @@ chosen scopes (see Stored data).
 
 | Permission | Patient | Pharmacist | Regulator | Admin | Endpoints |
 |---|:-:|:-:|:-:|:-:|---|
-| Own shop's sales register | | ✅ | | | `/api/sales`, `/api/pharmacy/state` |
+| Own shop's sales register | | ✅ | | | `/api/sales` |
 | Message own shop's buyers of a flagged batch | | ✅ | | | `/api/pharmacy/notify` |
 | Run a recall | | ✅ | ✅ | ✅ | `/api/recall/run`, `/api/recall/stream` |
-| Controller dashboard | | | ✅ | ✅ | `/api/controller` |
 | See who holds a flagged batch (names, phones, next dose), alert them | | | ✅ | ✅ | `/api/blast*` |
 | Messages Dosely sent | | | masked phones | full | `/api/notifications` |
 | Message a typed-in demo number, seed demo data, fetch new alerts | | | | ✅ | `/api/recall/run` with `demo_phone`, `/api/*/demo`, `/api/admin/ingest` |
