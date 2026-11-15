@@ -1,57 +1,48 @@
-# Render blueprint for the Dosely API. New > Blueprint > pick this repo. See docs/setup/DEPLOY.md.
+# Render blueprint for the Dosely API (free plan, no card). The website goes on Vercel and forwards /api here.
+# Render > New > Blueprint > pick this repo. Steps: docs/setup/DEPLOY.md
+#
+# Free-plan limits to know: the service sleeps after 15 minutes without traffic (reminders pause while it sleeps),
+# and the SQLite database is reset when it restarts. For always-on reminders and lasting data, use Cloud Run
+# (docs/setup/CLOUD_RUN.md) or a paid instance with a disk.
 services:
   - type: web
-    name: kincare-api
+    name: dosely-api
     runtime: python
     rootDir: api
-    plan: starter              # a persistent disk needs a paid instance; free instances lose the database on restart
-    buildCommand: pip install -r requirements.txt
-    startCommand: sh start.sh
+    plan: free
+    # OCR only reads image files, so the headless OpenCV build is enough (no desktop graphics libraries needed).
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      pip uninstall -y opencv-python &&
+      pip install --no-deps opencv-python-headless==4.11.0.86
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
     healthCheckPath: /health
-    disk:
-      name: kincare-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
       - key: TZ                        # dose times (08:00, 21:00) are Indian time; the server clock must be too
         value: Asia/Kolkata
-      - key: TELEGRAM_BOT_TOKEN        # free chat + caregiver alerts (docs/setup/TELEGRAM_SETUP.md)
-        sync: false
-      - key: TELEGRAM_BOT_NAME
-        sync: false
-      - key: TELEGRAM_WEBHOOK_SECRET
-        sync: false
-      - key: KINCARE_DB
-        value: /var/data/kincare.db
-      - key: VAPID_PRIVATE_KEY_FILE
-        value: /var/data/vapid_private.pem
+      - key: KINCARE_NIGHTLY           # no nightly alert download on a sleeping free instance
+        value: "0"
+      - key: COOKIE_SECURE             # session cookie only over HTTPS
+        value: "1"
       - key: OTP_SECRET
         generateValue: true
       - key: ADMIN_TOKEN
         generateValue: true
-      - key: KINCARE_DATA_KEY           # encrypts chats, doctor messages and diagnoses at rest (api/vault.py)
+      - key: KINCARE_DATA_KEY          # encrypts health data at rest (api/vault.py)
         generateValue: true
-      - key: COOKIE_SECURE             # session cookie only over HTTPS
-        value: "1"
       # Never set KINCARE_DEMO here: it shows login codes on screen and accepts unsigned webhooks (laptop demos only).
-      - key: PUBLIC_WEB_URL            # your Vercel URL, e.g. https://kincare.vercel.app
+      # Optional, all can be left empty: without them emails go to an outbox and the weekly note uses built-in text.
+      - key: SMTP_HOST                 # smtp.gmail.com
         sync: false
-      # Real WhatsApp (docs/setup/WHATSAPP_SETUP.md); leave empty to keep the outbox / demo-code mode
-      - key: WHATSAPP_TOKEN
+      - key: SMTP_USER                 # you@gmail.com
         sync: false
-      - key: WHATSAPP_PHONE_ID
+      - key: SMTP_PASSWORD             # Gmail app password, https://myaccount.google.com/apppasswords
         sync: false
-      - key: WHATSAPP_NUMBER
+      - key: EMAIL_FROM                # Dosely <you@gmail.com>
         sync: false
-      - key: WHATSAPP_VERIFY_TOKEN
+      - key: GEMINI_API_KEY            # https://aistudio.google.com/apikey
         sync: false
-      - key: WHATSAPP_APP_SECRET
-        sync: false
-      - key: WHATSAPP_TEMPLATE
-        sync: false
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: TINYFISH_API_KEY
+      - key: KINCARE_ORIGINS           # your Vercel URL, e.g. https://dosely.vercel.app (add after the web deploy)
         sync: false
