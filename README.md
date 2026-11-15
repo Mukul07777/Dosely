@@ -151,7 +151,7 @@ Keys go in Secret Manager, never in the image. Full steps: [docs/setup/CLOUD_RUN
 
 ```bash
 cd api && .venv/Scripts/python -m pytest        # 240 tests: care circle rules, security, reminders, matching
-cd web && npx tsc --noEmit && npx eslint .
+cd web && npm test && npx tsc --noEmit && npx eslint .   # 16 tests: display rules, passcode token handling
 ```
 
 ## Project structure

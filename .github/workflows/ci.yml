@@ -38,7 +38,7 @@ jobs:
       - run: python -m pytest -q
 
   web:
-    name: Web (typecheck, lint, build)
+    name: Web (typecheck, lint, test, build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,4 +53,5 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx eslint .
+      - run: npm test
       - run: npm run build

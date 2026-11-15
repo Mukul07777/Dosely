@@ -7,6 +7,7 @@ import {
   addRoutine, createProfile, decide, deleteMed, deleteRoutine, getToken, leave, myProfiles, note, removeMember, saveAppt, saveMed, setMemberEdit, tick, tickRoutine, unlock, updateProfile, view,
   type Med, type OwnProfile, type View,
 } from "@/lib/circle";
+import { SLOTS, SLOT_LABEL, actionText, dayBarHeight, dayBarStyle, medTimes, oftenMissed, pctText, routineLabel, stateStyle } from "@/lib/circleView";
 
 // Big, high-contrast controls: many people using this page are over 65.
 const btn = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-5 py-3 text-lg font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500 disabled:opacity-50";
@@ -14,7 +15,6 @@ const primary = `${btn} bg-blue-700 text-white hover:bg-blue-800`;
 const ghost = `${btn} border-2 border-slate-400 bg-white text-slate-900 hover:bg-slate-100`;
 const input = "mt-1 block w-full rounded-xl border-2 border-slate-400 bg-white px-4 py-3 text-lg text-slate-900 focus:border-blue-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-300";
 const card = "rounded-2xl border border-slate-300 bg-white p-5 shadow-sm";
-const SLOT = { morning: "Morning 8:00", noon: "Afternoon 2:00", night: "Night 9:00" } as const;
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return <label className="block text-lg font-medium text-slate-900">{label}{children}{hint && <span className="mt-1 block text-base font-normal text-slate-600">{hint}</span>}</label>;
@@ -90,8 +90,8 @@ function MedForm({ med, onSave, onCancel }: { med?: Med; onSave: (b: Record<stri
           <option value="">No instruction</option><option>after food</option><option>before food</option></select></Field>
       </div>
       <fieldset><legend className="text-lg font-medium">When</legend>
-        <div className="mt-1 flex flex-wrap gap-5">{(["morning", "noon", "night"] as const).map((s) => (
-          <label key={s} className="flex items-center gap-2 text-lg"><input type="checkbox" className="h-6 w-6" checked={f[s]} onChange={(e) => setF({ ...f, [s]: e.target.checked })} />{SLOT[s]}</label>
+        <div className="mt-1 flex flex-wrap gap-5">{SLOTS.map((s) => (
+          <label key={s} className="flex items-center gap-2 text-lg"><input type="checkbox" className="h-6 w-6" checked={f[s]} onChange={(e) => setF({ ...f, [s]: e.target.checked })} />{SLOT_LABEL[s]}</label>
         ))}<label className="flex items-center gap-2 text-lg"><input type="checkbox" className="h-6 w-6" checked={f.as_needed} onChange={(e) => setF({ ...f, as_needed: e.target.checked })} />Only when needed</label></div>
       </fieldset>
       <div className="flex gap-3"><button className={primary}>Save</button><button type="button" className={ghost} onClick={onCancel}>Cancel</button></div>
@@ -171,7 +171,7 @@ function Profile({ code, onClose }: { code: string; onClose: () => void }) {
             <ul className="mt-3 divide-y">{v.today.map((d) => (
               <li key={`${d.med_id}-${d.slot}`} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <span className="text-lg"><b>{d.time}</b> {d.name} {d.strength}{d.food && ` · ${d.food}`}
-                  <span className={`ml-2 rounded-full px-3 py-1 text-base font-semibold ${d.state === "taken" ? "bg-green-100 text-green-900" : d.state === "missed" ? "bg-red-100 text-red-900" : d.state === "due" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-800"}`}>{d.state}</span></span>
+                  <span className={`ml-2 rounded-full px-3 py-1 text-base font-semibold ${stateStyle(d.state)}`}>{d.state}</span></span>
                 <button className={d.taken_at ? ghost : primary} aria-label={`${d.taken_at ? "Undo" : "Mark taken"}: ${d.name} ${d.time}`}
                   onClick={() => act(() => tick(code, { med_id: d.med_id, slot: d.slot, taken: !d.taken_at }), d.taken_at ? "Marked not taken." : "Marked as taken. The family can see it.")}>
                   {d.taken_at ? "Undo" : <><Check aria-hidden /> Taken</>}</button>
@@ -181,16 +181,16 @@ function Profile({ code, onClose }: { code: string; onClose: () => void }) {
         <section className={card} aria-labelledby="adh-h">
           <h2 id="adh-h" className="text-2xl font-bold">Doses taken</h2>
           <dl className="mt-3 grid grid-cols-3 gap-3 text-center">
-            {[["Last 7 days", a.pct_7 === null ? "–" : `${a.pct_7}%`], ["Last 30 days", a.pct_30 === null ? "–" : `${a.pct_30}%`], ["Full days in a row", a.streak_days]].map(([k, val]) => (
+            {[["Last 7 days", pctText(a.pct_7)], ["Last 30 days", pctText(a.pct_30)], ["Full days in a row", a.streak_days]].map(([k, val]) => (
               <div key={k as string} className="rounded-xl bg-slate-100 p-3"><dt className="text-base text-slate-700">{k}</dt><dd className="text-3xl font-bold">{val}</dd></div>))}
           </dl>
           <ol className="mt-4 flex items-end gap-1" aria-label="Last 14 days">{a.days.slice(-14).map((d) => (
             <li key={d.day} className="flex-1" title={`${d.day}: ${d.taken} of ${d.due}`}>
               <span className="sr-only">{d.day}: {d.taken} of {d.due} doses</span>
-              <div aria-hidden className={`rounded-t ${d.pct === null ? "bg-slate-200" : d.pct >= 80 ? "bg-green-600" : d.pct >= 50 ? "bg-amber-500" : "bg-red-600"}`} style={{ height: `${8 + (d.pct ?? 0) * 0.6}px` }} />
+              <div aria-hidden className={`rounded-t ${dayBarStyle(d.pct)}`} style={{ height: `${dayBarHeight(d.pct)}px` }} />
             </li>))}</ol>
           <ul className="mt-3 space-y-1 text-lg">{a.medicines.filter((m) => m.pct !== null).map((m) => (
-            <li key={m.med_id}>{m.name}: <b>{m.pct}%</b> ({m.taken}/{m.due}){m.pct! < 80 && " · often missed"}</li>))}</ul>
+            <li key={m.med_id}>{m.name}: <b>{m.pct}%</b> ({m.taken}/{m.due}){oftenMissed(m.pct) && " · often missed"}</li>))}</ul>
         </section>
       </div>
 
@@ -204,7 +204,7 @@ function Profile({ code, onClose }: { code: string; onClose: () => void }) {
         <ul className="mt-3 divide-y">{v.medicines.map((m) => (
           <li key={m.id} className="py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className="text-lg"><b>{m.name}</b> {m.strength} · {m.as_needed ? "only when needed" : (["morning", "noon", "night"] as const).filter((s) => m[s]).map((s) => SLOT[s]).join(", ")}{m.food && ` · ${m.food}`}</span>
+              <span className="text-lg"><b>{m.name}</b> {m.strength} · {medTimes(m)}{m.food && ` · ${m.food}`}</span>
               {v.you.can_edit && <span className="flex gap-2">
                 <button className={ghost} onClick={() => setEditing(m.id)}>Edit</button>
                 <button className={ghost} aria-label={`Stop ${m.name}`} onClick={() => confirm(`Stop ${m.name}? Only do this if the doctor said so.`) && act(() => deleteMed(code, m.id), "Medicine removed.")}><Trash2 aria-hidden /></button>
@@ -221,8 +221,8 @@ function Profile({ code, onClose }: { code: string; onClose: () => void }) {
           <ul className="mt-3 divide-y">{v.routines.map((r) => (
             <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
               <span className="text-lg"><b>{r.time}</b> {r.title}
-                <span className={`ml-2 rounded-full px-3 py-1 text-base font-semibold ${r.state === "taken" ? "bg-green-100 text-green-900" : r.state === "missed" ? "bg-red-100 text-red-900" : r.state === "due" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-800"}`}>
-                  {r.state === "taken" ? `done${r.done_by ? ` by ${r.done_by}` : ""}` : r.state}</span></span>
+                <span className={`ml-2 rounded-full px-3 py-1 text-base font-semibold ${stateStyle(r.state)}`}>
+                  {routineLabel(r.state, r.done_by)}</span></span>
               <span className="flex gap-2">
                 <button className={r.done_at ? ghost : primary} aria-label={`${r.done_at ? "Undo" : "Mark done"}: ${r.title} ${r.time}`}
                   onClick={() => act(() => tickRoutine(code, r.id, !r.done_at), r.done_at ? "Marked not done." : "Marked as done. The family can see it.")}>
@@ -283,7 +283,7 @@ function Profile({ code, onClose }: { code: string; onClose: () => void }) {
       <section className={card} aria-labelledby="log-h">
         <h2 id="log-h" className="text-2xl font-bold">Recent activity</h2>
         <ul className="mt-2 space-y-1 text-lg">{v.activity.map((x, i) => (
-          <li key={i}><b>{x.who}</b> {x.action.replace("_", " ")}{x.detail && `: ${x.detail}`} <span className="text-slate-600">· {new Date(x.at).toLocaleString("en-IN")}</span></li>))}</ul>
+          <li key={i}><b>{x.who}</b> {actionText(x.action)}{x.detail && `: ${x.detail}`} <span className="text-slate-600">· {new Date(x.at).toLocaleString("en-IN")}</span></li>))}</ul>
       </section>
     </div>
   );
