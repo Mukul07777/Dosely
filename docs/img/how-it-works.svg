@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="t d">
+  <title id="t">How Dosely works</title>
+  <desc id="d">The elder creates a profile and passcode. Family and caretakers unlock it. Changes by others wait for the elder's approval. Doses are tracked and email reminders go to the circle.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8a4b2c"/></marker>
+  </defs>
+  <rect width="1200" height="360" rx="28" fill="#fffcf9"/>
+  <g font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif" fill="#2a1c15">
+    <!-- elder, at the centre -->
+    <circle cx="600" cy="170" r="92" fill="#2a1c15"/>
+    <text x="600" y="160" text-anchor="middle" font-size="26" font-weight="800" fill="#fffcf9">Elder</text>
+    <text x="600" y="188" text-anchor="middle" font-size="15" fill="#efe4db">owns the profile</text>
+    <text x="600" y="208" text-anchor="middle" font-size="15" fill="#efe4db">approves changes</text>
+
+    <!-- left: circle -->
+    <rect x="60" y="60" width="300" height="96" rx="20" fill="#f7f1ec"/>
+    <text x="84" y="98" font-size="20" font-weight="700">Family &amp; caretakers</text>
+    <text x="84" y="126" font-size="15" fill="#6b5a50">Unlock with profile ID + passcode</text>
+    <rect x="60" y="190" width="300" height="96" rx="20" fill="#f7f1ec"/>
+    <text x="84" y="228" font-size="20" font-weight="700">Propose a change</text>
+    <text x="84" y="256" font-size="15" fill="#6b5a50">Add, edit or stop a medicine</text>
+    <path d="M362 108 C 440 108, 460 140, 506 152" fill="none" stroke="#8a4b2c" stroke-width="2.5" marker-end="url(#a)"/>
+    <path d="M362 238 C 440 238, 460 200, 506 188" fill="none" stroke="#8a4b2c" stroke-width="2.5" stroke-dasharray="6 6" marker-end="url(#a)"/>
+
+    <!-- right: outcomes -->
+    <rect x="840" y="40" width="300" height="84" rx="20" fill="#f7f1ec"/>
+    <text x="864" y="76" font-size="20" font-weight="700">Doses &amp; adherence</text>
+    <text x="864" y="102" font-size="15" fill="#6b5a50">7 / 30-day %, streak, often missed</text>
+    <rect x="840" y="138" width="300" height="84" rx="20" fill="#f7f1ec"/>
+    <text x="864" y="174" font-size="20" font-weight="700">Email reminders</text>
+    <text x="864" y="200" font-size="15" fill="#6b5a50">Upcoming, missed, appointments</text>
+    <rect x="840" y="236" width="300" height="84" rx="20" fill="#f7f1ec"/>
+    <text x="864" y="272" font-size="20" font-weight="700">Gemini weekly note</text>
+    <text x="864" y="298" font-size="15" fill="#6b5a50">Plain words, English or Hindi</text>
+    <path d="M694 150 C 760 120, 780 90, 836 84" fill="none" stroke="#8a4b2c" stroke-width="2.5" marker-end="url(#a)"/>
+    <path d="M694 175 L 836 178" fill="none" stroke="#8a4b2c" stroke-width="2.5" marker-end="url(#a)"/>
+    <path d="M694 200 C 760 230, 780 270, 836 276" fill="none" stroke="#8a4b2c" stroke-width="2.5" marker-end="url(#a)"/>
+  </g>
+</svg>

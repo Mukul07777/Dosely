@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="t d">
+  <title id="t">Dosely</title>
+  <desc id="d">Dosely: medicines, doses and doctor visits, shared by the elder with family and caretakers.</desc>
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="35%" r="70%">
+      <stop offset="0" stop-color="#fffcf9"/><stop offset="0.6" stop-color="#f7f1ec"/><stop offset="1" stop-color="#efe4db"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="420" rx="28" fill="url(#glow)"/>
+  <g fill="#2a1c15" opacity="0.05">
+    <circle cx="140" cy="90" r="2"/><circle cx="180" cy="90" r="2"/><circle cx="220" cy="90" r="2"/>
+    <circle cx="980" cy="330" r="2"/><circle cx="1020" cy="330" r="2"/><circle cx="1060" cy="330" r="2"/>
+  </g>
+  <text x="600" y="255" text-anchor="middle" font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif" font-size="210" font-weight="900" letter-spacing="-8" fill="#2a1c15">DOSELY</text>
+  <text x="600" y="330" text-anchor="middle" font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif" font-size="26" fill="#8a4b2c">Medicines, doses and doctor visits, shared by the elder with the people who care.</text>
+  <g font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" fill="#2a1c15">
+    <rect x="300" y="360" width="180" height="36" rx="18" fill="#fffcf9" stroke="#2a1c15" stroke-opacity="0.12"/>
+    <text x="390" y="384" text-anchor="middle">Passcode access</text>
+    <rect x="500" y="360" width="200" height="36" rx="18" fill="#fffcf9" stroke="#2a1c15" stroke-opacity="0.12"/>
+    <text x="600" y="384" text-anchor="middle">Email reminders</text>
+    <rect x="720" y="360" width="180" height="36" rx="18" fill="#fffcf9" stroke="#2a1c15" stroke-opacity="0.12"/>
+    <text x="810" y="384" text-anchor="middle">Elder decides</text>
+  </g>
+</svg>
