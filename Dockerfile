@@ -12,11 +12,13 @@ RUN npm run build && npm prune --omit=dev
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 TZ=Asia/Kolkata NODE_ENV=production \
     KINCARE_API_URL=http://127.0.0.1:8000 KINCARE_DB=/tmp/kincare/kincare.db COOKIE_SECURE=1
-RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 tzdata && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*
 COPY --from=web /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
 COPY api/requirements.txt api/requirements.txt
-RUN pip install -r api/requirements.txt
+# OCR only reads image files, so the headless OpenCV build is enough: it needs no desktop graphics libraries
+# (libGL, Mesa, LLVM), which keeps the image about 100 MB smaller and the build faster.
+RUN pip install -r api/requirements.txt  && pip uninstall -y opencv-python  && pip install --no-deps opencv-python-headless==4.11.0.86
 COPY api/ api/
 COPY data/ data/
 COPY --from=web /web /app/web

@@ -6,6 +6,7 @@ registers with core.on_startup and runs from the lifespan below.
 """
 import os
 import time
+from urllib.parse import urlsplit
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -57,15 +58,25 @@ SECURITY_HEADERS = {
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 
 
+def _from_this_site(request: Request, origin: str) -> bool:
+    """True when the browser's Origin is this site itself: an allow-listed origin, the API's own host, or the host
+    the web app was reached on when it forwards /api (X-Forwarded-Host). A page on another site cannot fake that
+    header: adding any custom header triggers a CORS preflight, which we refuse."""
+    if origin in ORIGINS:
+        return True
+    site = urlsplit(origin).netloc
+    return bool(site) and site in (request.headers.get("host"), request.headers.get("x-forwarded-host"))
+
+
 @app.middleware("http")
 async def _guard(request: Request, call_next):
     """CSRF: a request authenticated by the session cookie that changes data must carry X-KinCare (a custom header another
     site can't add without a CORS preflight we refuse) and, when the browser says where it came from, an allowed Origin.
     Bearer-token clients and webhooks carry no cookie, so they are unaffected."""
-    if request.method in UNSAFE and request.url.path.startswith("/api/") and sessions.COOKIE in request.cookies             and not request.headers.get("authorization", "").lower().startswith("bearer "):
+    uses_cookie = sessions.COOKIE in request.cookies and not request.headers.get("authorization", "").lower().startswith("bearer ")
+    if request.method in UNSAFE and request.url.path.startswith("/api/") and uses_cookie:
         origin = request.headers.get("origin")
-        own = f"{request.url.scheme}://{request.headers.get('host', '')}"
-        if request.headers.get("x-kincare") != "1" or (origin and origin not in ORIGINS and origin != own):
+        if request.headers.get("x-kincare") != "1" or (origin and not _from_this_site(request, origin)):
             return JSONResponse({"detail": "Blocked: request did not come from the Dosely app."}, status_code=403)
     response = await call_next(request)
     for k, v in SECURITY_HEADERS.items():

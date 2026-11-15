@@ -92,6 +92,19 @@ def test_csrf_cookie_requests_need_the_app_header_and_origin():
     assert b.get("/api/watchlist").status_code == 200                                                     # reads need no header
 
 
+def test_csrf_accepts_the_sites_own_address_behind_its_proxy():
+    """On Cloud Run the site's address isn't known before the first deploy: the web app forwards /api and says which
+    host the browser used. That host is trusted; any other origin is still refused."""
+    b = TestClient(main.app)
+    b.post("/api/session")
+    via_proxy = {"X-KinCare": "1", "X-Forwarded-Host": "dosely-abc123.a.run.app"}
+    ok = b.post("/api/watchlist", json={"batch": "CSRF2"}, headers={**via_proxy, "Origin": "https://dosely-abc123.a.run.app"})
+    assert ok.status_code == 200
+    bad = b.post("/api/watchlist", json={"batch": "CSRF3"}, headers={**via_proxy, "Origin": "https://evil.example"})
+    assert bad.status_code == 403
+    assert b.post("/api/watchlist", json={"batch": "CSRF4"}, headers={"X-KinCare": "1", "Origin": "null"}).status_code == 403
+
+
 def test_security_headers_and_no_caching_of_medical_data():
     r = client.get("/api/watchlist", headers=auth_as("sec-hdr"))
     for k, v in {"x-content-type-options": "nosniff", "x-frame-options": "DENY", "referrer-policy": "no-referrer", "cache-control": "no-store"}.items():
