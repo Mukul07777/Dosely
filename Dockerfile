@@ -18,7 +18,7 @@ WORKDIR /app
 COPY api/requirements.txt api/requirements.txt
 # OCR only reads image files, so the headless OpenCV build is enough: it needs no desktop graphics libraries
 # (libGL, Mesa, LLVM), which keeps the image about 100 MB smaller and the build faster.
-RUN pip install -r api/requirements.txt  && pip uninstall -y opencv-python  && pip install --no-deps opencv-python-headless==4.11.0.86
+RUN pip install --default-timeout=120 --retries 8 -r api/requirements.txt && pip uninstall -y opencv-python && pip install --default-timeout=120 --retries 8 --no-deps opencv-python-headless==4.11.0.86
 COPY api/ api/
 COPY data/ data/
 COPY --from=web /web /app/web
