@@ -1,0 +1,200 @@
+# Dosely care network, as a Switch template (version 2).
+#
+# Three Claude Code agents look after an elder's medicines with the family and their pharmacist.
+# The fourth agent, kincare-recall-watcher, is a custom protocol agent (switch/recall_watcher.py) that
+# you register once and add to the room in Switch Console.
+#
+# Two ways to use it:
+#   - Telegram group (default): Switch cannot create Telegram chats, so make the family group in
+#     Telegram, add the bot, then pick that room here. The agents join it.
+#   - New rooms: creates a linked pair, "<family> Family Care" and "<family> Pharmacy Desk", with roles,
+#     the shared Decisions / Tasks documents and a data-sources document. For Slack, Discord or Console.
+#
+# Import: Switch Console -> Templates -> Import template -> this file -> Use template.
+# Every agent calls Dosely through switch/dosely_cli.py, so set "Dosely folder" to this repository.
+version: 2
+params:
+  family:
+    type: string
+    label: Family name
+    description: Used in room names, e.g. Sharma.
+    default: Sharma
+  kincare_dir:
+    type: string
+    label: Dosely folder
+    description: Full path of this repository on this computer (the folder that has switch/dosely_cli.py).
+    default: C:/Users/HP/Desktop/Dosely
+  mode:
+    type: enum
+    enum: [telegram_group, new_rooms]
+    label: Where the family works
+    description: telegram_group puts the agents in a Telegram group you already made; new_rooms creates two linked rooms.
+    default: telegram_group
+  family_chat:
+    type: room
+    label: Family group
+    description: The Telegram group's room (it appears once the bot is in the group).
+    if: "{mode} == telegram_group"
+  bridge:
+    type: bridge
+    label: Messaging app
+    description: Where the new rooms are created.
+    default: [$first]
+    required: false
+    if: "{mode} == new_rooms"
+  machine:
+    type: machine
+    description: The machine the agents run on.
+    default: [$first]
+    input: advanced
+form:
+  advanced: { label: Advanced, open: false }
+
+resources:
+  scan:
+    type: agent
+    name: dosely-scan
+    display_name: Dosely Scan
+    description: >-
+      Reads a medicine strip or pharmacy bill photo, finds the batch and checks it against India's
+      CDSCO drug alerts. Answers in Hindi and English.
+    provider: claude  # Claude Code; change to codex or opencode if you use those
+    machine: "{machine}"
+    directory: "{kincare_dir}/switch/agents/dosely-scan"
+    join: ["{family_chat}"]
+    addressing: anyone
+    instructions: |
+      You are Dosely Scan, in a family's medicine room. Read AGENT.md in your working directory first and follow it.
+
+  pharmacist:
+    type: agent
+    name: dosely-pharmacist
+    display_name: Dosely Pharmacist
+    description: >-
+      When a batch is flagged, finds the same salts from a maker with no alerts, then asks the
+      family's human pharmacist to approve before anything changes. Records the decision and the task.
+    provider: claude  # Claude Code; change to codex or opencode if you use those
+    machine: "{machine}"
+    directory: "{kincare_dir}/switch/agents/dosely-pharmacist"
+    join: ["{family_chat}"]
+    addressing: anyone
+    instructions: |
+      You are Dosely Pharmacist, in a family's medicine room. Read AGENT.md in your working directory first and follow it.
+
+  dose:
+    type: agent
+    name: dosely-dose
+    display_name: Dosely Dose Buddy
+    description: >-
+      Keeps the family's dose schedule, answers "what's due now?", and tells caregivers when a dose
+      is missed. Speaks simple Hindi to elders.
+    provider: claude  # Claude Code; change to codex or opencode if you use those
+    machine: "{machine}"
+    directory: "{kincare_dir}/switch/agents/dosely-dose"
+    join: ["{family_chat}"]
+    addressing: anyone
+    instructions: |
+      You are Dosely Dose Buddy, in a family's medicine room. Read AGENT.md in your working directory first and follow it.
+
+  network:
+    type: group
+    if: "{mode} == new_rooms"
+    name: "{family} care network"
+    description: One family and the pharmacy that looks after them.
+    links:
+      - { from: family_room, to: pharmacy_room, label: recalls needing a pharmacist go to }
+
+  family_room:
+    type: room
+    if: "{mode} == new_rooms"
+    group: network
+    name: "{family} Family Care"
+    description: >-
+      The {family} family and Dosely's agents look after an elder's medicines together:
+      batch checks, recall alerts, safe replacements and doses.
+    channel_type: channel_private
+    bridge: "{bridge}"
+    agents: [scan, pharmacist, dose]
+    users:
+      - if: "{bridge}"
+        value: ["{$creator}"]
+      - value: []
+    roles:
+      - name: elder
+        instructions: Takes the medicines. Agents reply to the elder in simple Hindi first, one line of English after.
+      - name: caregiver
+        instructions: Family member who buys medicines and is told when a dose is missed or a task is assigned.
+      - name: pharmacist
+        exclusive: true
+        instructions: >-
+          The only person who can approve replacing a medicine in this room. Agents propose; the pharmacist
+          replies "approve N" or "reject", and only that reply is recorded as a decision.
+      - name: doctor
+        instructions: >-
+          The patient's doctor. Must also approve any change to a narrow-range medicine (blood thinner,
+          thyroid hormone, epilepsy, diabetes, heart rhythm); such a decision records both approvals.
+    instructions: |
+      This room keeps one family's medicines safe. Rules for every agent here:
+      1. Never tell anyone to stop, start or switch a medicine. Only the person with the pharmacist role
+         (or a doctor) decides. Agents find facts and options; a human approves.
+      2. Every batch claim comes from Dosely's CDSCO data (switch/dosely_cli.py). Never guess a verdict.
+         If a check fails, say so and ask for a clearer photo or the batch number typed out.
+      3. Reply to elders in simple Hindi first, then one line of English.
+      4. Hand work to each other by @name: a flagged batch goes to @dosely-pharmacist,
+         a new medicine to @dosely-dose for the schedule.
+      5. Decisions and tasks are written to the room documents "Dosely Decisions" and "Dosely Tasks",
+         so everyone reads the same record.
+      6. Health data stays in this room. Never paste it anywhere else.
+    docs:
+      - name: Dosely Decisions
+        description: Every approved or rejected medicine change, who approved it, and why.
+        instructions: Append one line per decision. Only the pharmacist's reply makes a decision. Never edit past lines.
+        content: |
+          # Dosely Decisions
+          date | person | flagged medicine (batch, alert) -> replacement | approved or rejected by
+      - name: Dosely Tasks
+        description: Open and done tasks for the family, with an owner each.
+        instructions: 'One task per line as "- [ ] owner: task". Tick it "- [x]" when the owner says it is done.'
+        content: |
+          # Dosely Tasks
+      - name: Dosely data sources
+        description: Where every Dosely fact comes from.
+        instructions: Cite these when a family member asks "is this real?". Do not change.
+        content: |
+          # Where Dosely's facts come from
+          - Drug alerts: CDSCO (India's drug regulator), public NSQ and spurious-drug portal
+            https://cdscoonline.gov.in/CDSCO/viewPublicNSQDrug and the monthly drug alert PDFs, 2019 onwards.
+          - Medicines and prices: Indian Medicine Dataset (MIT), 246k brands with salts and MRP.
+          - Batch numbers are matched exactly; a near miss never raises an alert.
+          - "Not on any alert list" means not flagged so far, never "certified safe".
+    kickoff: |
+      @dosely-scan @dosely-pharmacist @dosely-dose this is the {family} family's care room.
+      Each of you: introduce yourself in one line (Hindi + English) and say what a family member should send you.
+
+  pharmacy_room:
+    type: room
+    if: "{mode} == new_rooms"
+    group: network
+    name: "{family} Pharmacy Desk"
+    description: >-
+      Where the family's pharmacist sees every recall for the families they look after, with
+      Dosely Pharmacist's proposed replacements, and decides.
+    channel_type: channel_private
+    bridge: "{bridge}"
+    agents: [pharmacist]
+    roles:
+      - name: pharmacist
+        exclusive: true
+        instructions: Reviews recalls for every family the pharmacy serves; one approval here covers every home listed.
+      - name: doctor
+        instructions: Must also approve any change to a narrow-range medicine (blood thinner, thyroid, epilepsy, diabetes, heart rhythm).
+    users:
+      - if: "{bridge}"
+        value: ["{$creator}"]
+      - value: []
+    instructions: |
+      The pharmacy side of the {family} family's care. @dosely-pharmacist posts each flagged batch here
+      with up to three same-salt options from makers with no CDSCO alerts. The pharmacist decides here or
+      in the family room; the decision is recorded in the family room's "Dosely Decisions".
+    kickoff: |
+      @dosely-pharmacist this is the pharmacy desk for the {family} family. Say in two lines what you will post here.
